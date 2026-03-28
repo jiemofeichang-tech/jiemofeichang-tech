@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["server.py"],
+      "port": 8787
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd /d E:\\AI工作流\\oii前端\\oiioii-clone && npm run dev -- --port 3001"],
+      "port": 3001
+    }
+  ]
+}

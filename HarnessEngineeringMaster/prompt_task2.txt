@@ -1,0 +1,156 @@
+你是一个专业的 Next.js + React + TypeScript 全栈开发者，擅长制作精美的 AI 工具界面。
+
+## 任务目标
+为 AI漫剧生成工作流 实现前端页面：左侧步骤引导栏 + 右侧无限画布。
+
+## 必读文件（先读取）
+1. 读取 D:/AiProject/AiComedyDrama/src/lib/api.ts — 了解现有 API 函数和类型定义
+2. 读取 D:/AiProject/AiComedyDrama/src/components/workflow/ChatPanel.tsx — 了解聊天组件风格
+3. 读取 D:/AiProject/AiComedyDrama/src/components/workflow/CanvasPanel.tsx — 了解现有画布组件
+4. 读取 D:/AiProject/AiComedyDrama/src/app/workflow/[projectId]/page.tsx — 了解现有页面结构
+5. 列出 D:/AiProject/AiComedyDrama/src/components/ — 了解组件库
+
+## 要输出的文件（写入 workspace 对应路径）
+
+### 1. src/types/workflow.ts
+完整的 TypeScript 类型定义文件，包含：
+- WfScript（剧本：script_id, project_id, title, synopsis, genre, theme, characters[], episodes[]）
+- WfScriptCharacter（name, role, personality, appearance）
+- WfEpisode（ep_num, title, scenes[]）
+- WfScene（scene_id, location, characters[], action, dialogue[], panel_suggestion）
+- WfDialogue（character, line, emotion）
+- WfCharacter（character_id, project_id, name, personality, appearance_desc, role_type, status, tasks, images）
+  - status: generating | done | error
+  - tasks/images 包含 9 个 key: front, side, back, happy, sad, angry, surprised, thinking, shy
+- WfStoryboard（storyboard_id, project_id, script_id, episode_num, style, panels[]）
+- WfPanel（panel_id, scene_id, shot_type, camera_angle, image_prompt, dialogue_ref, duration_sec, task_id?, status, image_url?）
+  - status: pending | generating | done | error
+- WfVideoTask（video_task_id, project_id, storyboard_id, status, progress: number, output_url?）
+  - status: processing | done | error
+- WfWorkflowStatus（project_id, steps: {script, characters, storyboard, video}）
+
+### 2. src/lib/workflowApi.ts（新建，不修改现有 api.ts）
+所有工作流 API 函数，使用 fetch 调用后端：
+- wfGenerateScript(params: {project_id, genre, theme, characters_count, episodes_count}): Promise<WfScript>
+- wfGetScript(scriptId: string): Promise<WfScript>
+- wfCreateCharacter(params: {project_id, name, personality, appearance_desc, role_type}): Promise<WfCharacter>
+- wfGetCharacter(characterId: string): Promise<WfCharacter>
+- wfListCharacters(projectId: string): Promise<WfCharacter[]>
+- wfGenerateStoryboard(params: {project_id, script_id, episode_num, style}): Promise<WfStoryboard>
+- wfGetStoryboard(storyboardId: string): Promise<WfStoryboard>
+- wfRegeneratePanel(panelId: string): Promise<WfPanel>
+- wfComposeVideo(params: {project_id, storyboard_id, voice_config: {speaker, speed}}): Promise<WfVideoTask>
+- wfGetVideoTask(taskId: string): Promise<WfVideoTask>
+- wfGetWorkflowStatus(projectId: string): Promise<WfWorkflowStatus>
+
+所有函数的 API 端点前缀：/api/workflow/
+
+### 3. src/app/workflow/[projectId]/page.tsx（替换现有文件）
+整体布局：flex h-screen overflow-hidden
+- 左侧：w-80 固定宽度，bg-zinc-900，WorkflowSidebar 组件
+- 右侧：flex-1，WorkflowCanvas 组件
+- 使用 'use client'
+- 从 params.projectId 获取项目ID
+- 初始化时调用 wfGetWorkflowStatus
+
+### 4. src/components/workflow/WorkflowSidebar.tsx
+5步骤引导面板，暗色主题，滚动内容：
+
+顶部：项目标题 + 返回按钮
+
+步骤1「剧本设置」：
+  - 题材 Select（仙侠 / 重生穿越 / 都市逆袭 / 甜宠 / 悬疑 / 搞笑）
+  - 主题 Textarea（placeholder: 用一两句话描述故事主题...）
+  - 集数 input[type=number]（默认3，min=1, max=12）
+  - 主角数量 input[type=number]（默认2，min=1, max=6）
+  - 生成剧本 button（点击调用 wfGenerateScript，加载中显示 spinner）
+  - 完成后：显示剧本标题 + 简介 + 角色列表（名字+身份标签）
+
+步骤2「角色设计」（步骤1完成后解锁）：
+  - 列出剧本角色，每行：角色名（粗体）+ 角色定位标签 + 外貌描述 input（可编辑，prefill 来自剧本）
+  - 批量生成角色图 button
+  - 每个角色显示进度：生成中 (N/9) 用小圆点动画 ... 或 已完成 (9/9) 绿色✓
+
+步骤3「生成分镜」（步骤2完成后解锁）：
+  - 集数选择 select（列出剧本中的所有集）
+  - 画风 select（赛博朝克 / 仙侠水墨 / 都市写实 / 唯美古风）
+  - 生成分镜 button
+  - 进度：已生成 N/M 帧（线性进度条）
+
+步骤4「合成视频」（步骤3完成后解锁）：
+  - 配音风格 select（男低音旁白 / 女声温柔 / 中性解说）
+  - 语速 input[type=range]（0.8~1.2，步长0.1，显示当前值）
+  - 开始合成 button
+  - 三条进度条：TTS配音 / 视频生成 / 最终合并
+
+步骤5「完成」（步骤4完成后显示）：
+  - 成功提示 + 视频时长
+  - 下载视频 button（href 到 output_url）
+  - 复制链接 button
+
+步骤导航：
+  - 每个步骤有标题 + 折叠/展开
+  - 完成的步骤显示绿色 ✓ 图标
+  - 当前步骤高亮（紫色左边框）
+  - 未解锁步骤显示灰色锁定状态
+
+### 5. src/components/workflow/WorkflowCanvas.tsx
+无限画布，纯 CSS transform + React state（不依赖第三方库）：
+
+状态：scale(0.5-2, 默认0.85), offset({x,y}), isDragging
+
+事件：
+  - onMouseDown: 中键 → 开始拖动
+  - onMouseMove: isDragging → 更新 offset
+  - onMouseUp/Leave: 停止拖动
+  - onWheel: ctrlKey → 缩放，否则 → 上下滚动
+  - 工具栏按钮：放大 / 缩小 / 重置视图
+
+画布内容（根据 workflowStatus 阶段动态渲染，从左到右排列）：
+
+区域1 ScriptCard（script 就绪后显示，绝对定位 left=40, top=40）：
+  - 宽 280px，bg-zinc-800，rounded-xl，p-4
+  - 大标题 + 副标题（简介，2行截断）
+  - 底部：集数 + 角色数 标签
+
+区域2 CharacterCards（characters 就绪后显示，left=360, top=40，横向排列）：
+  - 每个角色卡宽 160px，间距 16px
+  - 顶部：3张小图（前/侧/背，每张 48x64px，骨架屏 loading）
+  - 中部：6格表情包（3x2，每格 44x44px）
+  - 底部：角色名 + 状态标签
+
+区域3 StoryboardRow（storyboard 就绪后显示，left=40, top=340）：
+  - 横向排列分镜帧，每帧 100x140px
+  - 帧序号（左上角小徽章）+ 景别标签（右上角）
+  - 图片（骨架屏 loading，done 后显示图片）
+  - 底部台词文字（单行截断）
+
+区域4 VideoCard（video 就绪后显示，left=40, top=560）：
+  - 9:16 比例容器（宽 180px，高 320px）
+  - video 标签 + controls
+  - 下方显示合成状态/进度
+
+右下角小工具栏（fixed，不跟随画布移动）：
+  - 缩放比例显示
+  - + / - 按钮
+  - 定位到中心按钮
+
+### 6. 创建 README_task2.md
+说明：
+- 各文件功能和路径
+- 如何合并到主项目（rsync 命令）
+- 依赖关系（需要后端 /api/workflow/* 路由）
+
+## 设计风格
+- 暗色主题：bg-zinc-900 / bg-zinc-800 / bg-zinc-700
+- 强调色：purple-500 / violet-500
+- 所有按钮：rounded-lg，带 hover/active 过渡
+- 加载状态：animate-pulse（骨架屏）或 animate-spin（spinner）
+- 完成状态：green-500 图标
+- 错误状态：red-400 提示
+
+## 约束
+- 全程 TypeScript，完整类型注解
+- 组件间通过 props 传递，不使用全局状态库
+- 轮询用 useEffect + setInterval，卸载时 clearInterval
+- 使用现有项目的 Tailwind 配置，不引入新 CSS 框架

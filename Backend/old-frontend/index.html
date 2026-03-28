@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Seedance Studio</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">S</div>
+          <div>
+            <div class="brand-title">Seedance Studio</div>
+            <div class="brand-subtitle">本地创作工作台</div>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-item is-active" data-section="generate">生成</button>
+          <button class="nav-item" data-section="assets">资产</button>
+          <button class="nav-item" data-section="tasks">任务</button>
+          <button class="nav-item" data-section="settings">设置</button>
+        </nav>
+
+        <section class="sidebar-card">
+          <div class="sidebar-label">当前账号</div>
+          <div class="sidebar-value" id="sidebar-user-id">86</div>
+          <div class="sidebar-hint">使用众联 MAAS 代理层，本地只负责持有 token 与作品缓存。</div>
+        </section>
+
+        <section class="sidebar-card">
+          <div class="sidebar-label">默认模型</div>
+          <div class="sidebar-value" id="sidebar-default-model">doubao-seedance-2.0</div>
+          <div class="sidebar-hint">服务端会映射到真实执行模型版本。</div>
+        </section>
+
+        <section class="sidebar-card">
+          <div class="sidebar-label">工作流</div>
+          <ol class="mini-steps">
+            <li>写提示词或挂参考素材</li>
+            <li>创建任务并自动轮询</li>
+            <li>生成成功后自动存到本地作品库</li>
+          </ol>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow">Seedance 2.0 创作台</div>
+            <h1>更像即梦的本地控制台</h1>
+            <p class="lede">
+              同一页面里完成创作、查询、预览、入库和下载。生成成功的视频会自动落到本地，不再依赖临时签名链接。
+            </p>
+          </div>
+          <div class="topbar-actions">
+            <button class="ghost-button" id="refresh-all">刷新状态</button>
+            <button class="primary-button" id="open-storage">打开本地作品目录</button>
+          </div>
+        </header>
+
+        <section class="hero-panel" id="generate">
+          <div class="hero-copy">
+            <div class="hero-kicker">视频生成</div>
+            <h2>Seedance 2.0 全能参考</h2>
+            <p>支持纯文生、首尾帧控制、图像参考、视频参考、延长视频、联网搜索、虚拟人参考音频。智能运镜会作为提示词增强层自动拼进请求。</p>
+          </div>
+          <div class="hero-modes" id="mode-grid"></div>
+        </section>
+
+        <section class="content-grid">
+          <section class="panel compose-panel">
+            <div class="panel-head">
+              <div>
+                <div class="panel-kicker">创作面板</div>
+                <h3>生成参数</h3>
+              </div>
+              <div class="status-chip" id="key-status-chip">Key 已加载</div>
+            </div>
+
+            <form id="studio-form" class="studio-form">
+              <div class="field-grid two-col">
+                <label class="field">
+                  <span>模型 ID</span>
+                  <input id="model" type="text" />
+                </label>
+                <label class="field">
+                  <span>创作模式</span>
+                  <select id="mode"></select>
+                </label>
+              </div>
+
+              <label class="field">
+                <span>提示词 / Prompt</span>
+                <textarea id="prompt" rows="6" placeholder="输入你想要的视频内容、叙事节奏、画面质感、角色动作和声音要求。"></textarea>
+              </label>
+
+              <div class="field-grid three-col">
+                <label class="field">
+                  <span>运镜风格</span>
+                  <select id="camera-preset"></select>
+                </label>
+                <label class="field">
+                  <span>镜头速度</span>
+                  <select id="motion-speed"></select>
+                </label>
+                <label class="field">
+                  <span>搜索增强</span>
+                  <select id="search-mode">
+                    <option value="off">关闭</option>
+                    <option value="on">开启联网搜索</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="field-grid four-col">
+                <label class="field">
+                  <span>分辨率</span>
+                  <select id="resolution"></select>
+                </label>
+                <label class="field">
+                  <span>画幅比例</span>
+                  <select id="ratio"></select>
+                </label>
+                <label class="field">
+                  <span>时长</span>
+                  <select id="duration"></select>
+                </label>
+                <label class="field">
+                  <span>生成音频</span>
+                  <select id="generate-audio">
+                    <option value="true">开启</option>
+                    <option value="false">关闭</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="reference-board">
+                <div class="reference-board-head">
+                  <div>
+                    <div class="panel-kicker">素材工作区</div>
+                    <h4>图片参考优先走上传与拖拽</h4>
+                  </div>
+                  <div class="reference-note">主参考图、首帧、尾帧、多图参考都支持点击上传与拖拽上传。URL 输入保留在高级区，仅作为备用。</div>
+                </div>
+
+                <div class="upload-grid">
+                  <section class="upload-panel" id="source-image-upload-panel">
+                    <div class="upload-panel-head compact">
+                      <div>
+                        <div class="panel-kicker">图生视频</div>
+                        <h4>主参考图</h4>
+                      </div>
+                    </div>
+                    <input id="source-image-file" type="file" accept="image/*" hidden />
+                    <div class="dropzone" id="source-image-dropzone" tabindex="0" role="button">
+                      <div class="dropzone-copy">
+                        <strong>点击上传主参考图</strong>
+                        <span>或拖拽 JPG / PNG / WEBP 到这里</span>
+                      </div>
+                      <button class="ghost-button" type="button" id="source-image-select">选择图片</button>
+                    </div>
+                    <div class="upload-meta" id="source-image-upload-meta">当前还没有选择本地图片。</div>
+                    <div class="upload-actions">
+                      <button class="ghost-button" type="button" id="source-image-clear">清除</button>
+                    </div>
+                  </section>
+
+                  <section class="upload-panel" id="first-frame-upload-panel">
+                    <div class="upload-panel-head compact">
+                      <div>
+                        <div class="panel-kicker">首帧控制</div>
+                        <h4>首帧图片</h4>
+                      </div>
+                    </div>
+                    <input id="first-frame-file" type="file" accept="image/*" hidden />
+                    <div class="dropzone" id="first-frame-dropzone" tabindex="0" role="button">
+                      <div class="dropzone-copy">
+                        <strong>点击上传首帧</strong>
+                        <span>或拖拽图片到这里</span>
+                      </div>
+                      <button class="ghost-button" type="button" id="first-frame-select">选择图片</button>
+                    </div>
+                    <div class="upload-meta" id="first-frame-upload-meta">当前还没有选择首帧图片。</div>
+                    <div class="upload-actions">
+                      <button class="ghost-button" type="button" id="first-frame-clear">清除</button>
+                    </div>
+                  </section>
+
+                  <section class="upload-panel" id="last-frame-upload-panel">
+                    <div class="upload-panel-head compact">
+                      <div>
+                        <div class="panel-kicker">首尾帧</div>
+                        <h4>尾帧图片</h4>
+                      </div>
+                    </div>
+                    <input id="last-frame-file" type="file" accept="image/*" hidden />
+                    <div class="dropzone" id="last-frame-dropzone" tabindex="0" role="button">
+                      <div class="dropzone-copy">
+                        <strong>点击上传尾帧</strong>
+                        <span>或拖拽图片到这里</span>
+                      </div>
+                      <button class="ghost-button" type="button" id="last-frame-select">选择图片</button>
+                    </div>
+                    <div class="upload-meta" id="last-frame-upload-meta">当前还没有选择尾帧图片。</div>
+                    <div class="upload-actions">
+                      <button class="ghost-button" type="button" id="last-frame-clear">清除</button>
+                    </div>
+                  </section>
+
+                  <section class="upload-panel" id="image-refs-upload-panel">
+                    <div class="upload-panel-head compact">
+                      <div>
+                        <div class="panel-kicker">多图参考</div>
+                        <h4>补充图片组</h4>
+                      </div>
+                    </div>
+                    <input id="image-refs-file" type="file" accept="image/*" multiple hidden />
+                    <div class="dropzone" id="image-refs-dropzone" tabindex="0" role="button">
+                      <div class="dropzone-copy">
+                        <strong>点击上传多张参考图</strong>
+                        <span>或一次性拖进多张图片</span>
+                      </div>
+                      <button class="ghost-button" type="button" id="image-refs-select">选择多张图片</button>
+                    </div>
+                    <div class="upload-meta" id="image-refs-upload-meta">当前还没有选择补充参考图。</div>
+                    <div class="upload-actions">
+                      <button class="ghost-button" type="button" id="image-refs-clear">清除全部</button>
+                    </div>
+                  </section>
+                </div>
+
+                <div class="reference-preview-board" id="reference-preview-board">
+                  <div class="reference-preview-head">
+                    <div class="panel-kicker">参考预览</div>
+                    <div class="reference-note">上传后的图片会在这里汇总预览。多图参考会按顺序排列。</div>
+                  </div>
+                  <div class="reference-preview-grid" id="reference-preview-grid"></div>
+                </div>
+
+                <details class="advanced-inputs">
+                  <summary>高级输入：URL 直链</summary>
+                  <div class="field-grid two-col advanced-input-grid">
+                    <label class="field" id="source-image-field">
+                      <span>主参考图 URL</span>
+                      <input id="source-image" type="text" placeholder="https://..." />
+                      <span class="field-hint">如果这里和本地上传同时存在，优先使用本地上传图片。</span>
+                    </label>
+                    <label class="field" id="first-frame-field">
+                      <span>首帧图片 URL</span>
+                      <input id="first-frame" type="text" placeholder="https://..." />
+                    </label>
+                    <label class="field" id="last-frame-field">
+                      <span>尾帧图片 URL</span>
+                      <input id="last-frame" type="text" placeholder="https://..." />
+                    </label>
+                    <label class="field" id="image-refs-field">
+                      <span>图片参考 URL（每行一个）</span>
+                      <textarea id="image-refs" rows="5" placeholder="https://example.com/frame-a.jpg"></textarea>
+                    </label>
+                  </div>
+                </details>
+
+                <div class="field-grid two-col reference-side-inputs">
+                  <label class="field" id="video-refs-field">
+                    <span>视频参考 URL（每行一个）</span>
+                    <textarea id="video-refs" rows="5" placeholder="https://example.com/ref-video.mp4"></textarea>
+                  </label>
+                  <label class="field" id="audio-refs-field">
+                    <span>音频参考 URL（每行一个）</span>
+                    <textarea id="audio-refs" rows="4" placeholder="https://example.com/ref-audio.mp3"></textarea>
+                  </label>
+                  <div class="field-stack">
+                    <label class="field" id="asset-audio-id-field">
+                      <span>虚拟人音频素材 ID</span>
+                      <input id="asset-audio-id" type="text" placeholder="asset://ASSET_ID 或直接填 ID" />
+                    </label>
+                    <label class="field" id="task-reference-field">
+                      <span>延长视频 / 样片任务 ID</span>
+                      <input id="task-reference" type="text" placeholder="cgt-xxxx" />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="helper-strip" id="prompt-helper"></div>
+
+              <div class="form-actions">
+                <button class="primary-button" type="submit" id="create-task">创建任务</button>
+                <button class="ghost-button" type="button" id="preview-payload">预览 JSON</button>
+                <button class="ghost-button" type="button" id="reset-form">重置表单</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="right-column">
+            <section class="panel preview-panel">
+              <div class="panel-head">
+                <div>
+                  <div class="panel-kicker">即时预览</div>
+                  <h3>当前任务</h3>
+                </div>
+                <div class="status-cluster">
+                  <span class="status-badge" id="task-status">未开始</span>
+                  <span class="status-badge subtle" id="autosave-status">自动入库开启</span>
+                </div>
+              </div>
+
+              <div class="preview-stage" id="preview-stage">
+                <div class="preview-empty">
+                  <strong>还没有可播放视频</strong>
+                  <span>生成成功后，这里会直接出现播放器；同时视频会被自动保存到本地作品库。</span>
+                </div>
+              </div>
+
+              <div class="meta-grid">
+                <div class="meta-card">
+                  <span>任务 ID</span>
+                  <strong id="current-task-id">-</strong>
+                </div>
+                <div class="meta-card">
+                  <span>本地存档</span>
+                  <strong id="current-local-state">未保存</strong>
+                </div>
+                <div class="meta-card">
+                  <span>成本</span>
+                  <strong id="current-cost">-</strong>
+                </div>
+              </div>
+
+              <div class="progress-panel">
+                <div class="progress-topline">
+                  <div>
+                    <div class="panel-kicker">进度</div>
+                    <strong id="progress-percent">0%</strong>
+                  </div>
+                  <div class="reference-note" id="progress-meta">等待创建任务。</div>
+                </div>
+                <div class="progress-track">
+                  <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <div class="progress-stages" id="progress-stages"></div>
+              </div>
+
+              <div class="preview-actions">
+                <button class="ghost-button" id="query-current">查询当前任务</button>
+                <button class="ghost-button" id="save-current">保存到本地</button>
+                <button class="ghost-button" id="open-current-remote">打开远程链接</button>
+                <button class="ghost-button" id="download-current">下载本地副本</button>
+              </div>
+
+              <div class="log-panel" id="message-box">等待操作。</div>
+            </section>
+
+            <section class="panel tasks-panel" id="tasks">
+              <div class="panel-head">
+                <div>
+                  <div class="panel-kicker">任务列表</div>
+                  <h3>最近任务</h3>
+                </div>
+                <button class="ghost-button" id="refresh-history">刷新任务</button>
+              </div>
+              <div class="task-list" id="task-list"></div>
+            </section>
+          </section>
+        </section>
+
+        <section class="panel assets-panel" id="assets">
+          <div class="panel-head">
+            <div>
+              <div class="panel-kicker">作品库</div>
+              <h3>本地已保存视频</h3>
+            </div>
+            <div class="asset-actions">
+              <button class="ghost-button" id="refresh-library">刷新作品库</button>
+              <button class="ghost-button" id="open-storage-secondary">打开存储目录</button>
+            </div>
+          </div>
+          <div class="asset-grid" id="asset-grid"></div>
+        </section>
+
+        <section class="panel settings-panel" id="settings">
+          <div class="panel-head">
+            <div>
+              <div class="panel-kicker">账号与行为</div>
+              <h3>本地配置</h3>
+            </div>
+          </div>
+          <form id="settings-form" class="settings-form">
+            <div class="field-grid three-col">
+              <label class="field">
+                <span>用户 ID</span>
+                <input id="user-id" type="text" />
+              </label>
+              <label class="field">
+                <span>默认模型</span>
+                <input id="default-model" type="text" />
+              </label>
+              <label class="field">
+                <span>自动入库</span>
+                <select id="auto-save-setting">
+                  <option value="true">开启</option>
+                  <option value="false">关闭</option>
+                </select>
+              </label>
+            </div>
+            <label class="field">
+              <span>后端服务地址（分离部署时填写，如 http://192.168.1.100:8787）</span>
+              <input id="api-base" type="url" placeholder="留空表示同源部署" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>API Token</span>
+              <input id="api-key" type="password" autocomplete="off" />
+            </label>
+            <div class="form-actions">
+              <button class="primary-button" type="submit">保存本地配置</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel raw-panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-kicker">调试</div>
+              <h3>原始响应</h3>
+            </div>
+          </div>
+          <pre id="raw-response">{}</pre>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

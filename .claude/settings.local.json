@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "mcp__mcp-registry__search_mcp_registry",
+      "Bash(npm run:*)",
+      "Bash(grep -r \"DELETE\\\\|delete\\\\|trash\\\\|remove\" E:/AI工作流/oii前端/oiioii-clone/src/components/ --include=*.tsx --include=*.ts)",
+      "Bash(grep -r \"fetch\\\\|XMLHttpRequest\\\\|WebSocket\\\\|EventSource\\\\|ws://\" E:/AI工作流/oii前端/oiioii-clone/src --include=*.tsx --include=*.ts)",
+      "Bash(grep -r \"onClick\\\\|onSubmit\\\\|fetch\\(\" E:/AI工作流/oii前端/oiioii-clone/src/components --include=*.tsx -A 2)",
+      "Bash(grep -r \"api\\\\|fetch\" E:/AI工作流/oii前端/oiioii-clone/src --include=*.tsx --include=*.ts)",
+      "Bash(grep -rn \"wf\\\\|api\\\\\\(\" E:/AI工作流/oii前端/oiioii-clone/src/components --include=*.tsx)",
+      "Bash(curl -s http://127.0.0.1:8787/api/auth/register -X POST -H 'Content-Type: application/json' -d '{\"\"username\"\":\"\"testdev\"\",\"\"password\"\":\"\"test123456\"\"}')",
+      "Bash(npm install:*)",
+      "Bash(curl -v http://127.0.0.1:8787/api/auth/register -X POST -H 'Content-Type: application/json' -d '{\"\"\"\"username\"\"\"\":\"\"\"\"testdev\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"test123456\"\"\"\"}')",
+      "Bash(npx tsc:*)",
+      "Bash(cmd.exe /c \"taskkill /F /IM node.exe 2>nul & taskkill /F /IM python.exe 2>nul\")",
+      "Bash(netstat -ano)",
+      "Bash(cmd.exe /c \"taskkill /PID 24496 /F /T & taskkill /PID 22436 /F /T\")",
+      "Bash(kill -9 24496)",
+      "Bash(kill -9 22436)",
+      "Bash(cmd.exe /c \"taskkill /F /IM node.exe\")",
+      "Bash(cmd.exe /c \"taskkill /F /IM python.exe\")",
+      "Read(//c/Users/jiemo/Downloads/**)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/login)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3001/login)",
+      "Bash(ls \"C:/Users/jiemo/Downloads/styles_data\"*)",
+      "Bash(ls \"/c/Users/jiemo/Downloads/styles_data\"*)",
+      "Bash(python -c \"import server; print\\(''server.py imports OK''\\)\")",
+      "Bash(curl -s http://127.0.0.1:8787/api/projects)",
+      "Bash(curl -s -X POST http://127.0.0.1:8787/api/projects -H \"Content-Type: application/json\" -d '{\"\"\"\"title\"\"\"\":\"\"\"\"测试仙侠漫剧\"\"\"\",\"\"\"\"raw_input\"\"\"\":\"\"\"\"一个修仙少年被逐出师门的故事\"\"\"\"}')",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d[''''id''''], d[''''status'''']\\)\")",
+      "Bash(curl -sv -X POST http://127.0.0.1:8787/api/projects -H \"Content-Type: application/json\" -d \"{\"\"title\"\":\"\"test\"\",\"\"raw_input\"\":\"\"test story\"\"}\")",
+      "Bash(curl -s -X PUT http://127.0.0.1:8787/api/projects/proj-20260328040452-j4flq -H \"Content-Type: application/json\" -d \"{\"\"title\"\":\"\"Updated Title\"\",\"\"status\"\":\"\"scripting\"\"}\")",
+      "Bash(curl -s -X POST http://127.0.0.1:8787/api/ai/chat -H \"Content-Type: application/json\" -d \"{\"\"model\"\":\"\"claude-opus-4-6\"\",\"\"messages\"\":[{\"\"role\"\":\"\"user\"\",\"\"content\"\":\"\"hello\"\"}]}\")",
+      "Bash(python -c \":*)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(taskkill //PID 28548 //F)",
+      "Bash(curl -s http://127.0.0.1:8787/api/health)",
+      "mcp__Claude_Preview__preview_start"
+    ]
+  }
+}

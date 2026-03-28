@@ -1,0 +1,137 @@
+你是一个专业的Python后端开发者。
+
+## 任务目标
+扩展 D:/AiProject/AiComedyDrama/server.py，为 AI漫剧生成工作流 新增后端 API 路由和对应的业务模块文件。
+
+## 必读文件（先读取再开始）
+1. 读取 D:/AiProject/AiComedyDrama/server.py 完整内容，理解：
+   - 所有已有路由（/api/projects, /api/ai/chat, /api/ai/image 等）
+   - 辅助函数（now_iso, 生成ID的方式, _send_json, _send_error 等）
+   - 数据存储方式（PROJECTS_DIR, JSON 文件）
+   - Handler 类的 do_GET/do_POST/do_PUT/do_DELETE 结构
+   - API_KEY 和 BASE_URL 的获取方式（.local-secrets.json）
+
+## 要输出的文件（全部写入 workspace 根目录）
+
+### 1. script_engine.py
+Python 模块，实现剧本生成：
+- class ScriptEngine(api_key, base_url, model='claude-opus-4-5')
+- generate_script(params: dict) -> dict
+  - params: {project_id, genre, theme, characters_count, episodes_count}
+  - 调用 LLM，system prompt 要求严格输出 JSON
+  - 输出结构：{script_id, title, synopsis, characters:[{name,role,personality,appearance}], episodes:[{ep_num,title,scenes:[{scene_id,location,characters,action,dialogue:[{character,line,emotion}],panel_suggestion}]}]}
+  - 解析 JSON（支持 markdown 代码块提取）
+  - 保存到 D:/AiProject/AiComedyDrama/data/scripts/{script_id}.json
+  - 返回完整 dict
+- _call_llm(messages) -> str: 用 urllib.request 调用 OpenAI 兼容 API（不引入 openai 库）
+- _parse_json_safe(text) -> dict: 提取 JSON，支持 ```json 代码块包裹
+
+### 2. character_factory.py
+Python 模块：
+- class CharacterFactory(api_key, base_url, image_api_url)
+- create_character(params: dict) -> dict
+  - params: {project_id, name, personality, appearance_desc, role_type}
+  - 生成 character_id
+  - 构造 9 个图片生成 prompt（3视图+6表情）
+  - 调用 image_api_url 提交图片任务
+  - 保存初始状态到 D:/AiProject/AiComedyDrama/data/characters/{id}.json
+  - 返回 {character_id, name, status: 'generating', tasks: {front, side, back, happy, sad, angry, surprised, thinking, shy}}
+- get_character(character_id) -> dict: 读取JSON，轮询每个task状态，更新
+- _submit_image_task(prompt) -> str: POST 到 image_api_url，返回 task_id
+- _check_task_status(task_id) -> dict: 查询任务状态
+
+图片 prompt 模板：
+  front: {appearance}，正面全身角色设计图，动漫风格，白色背景，高清线稿，细节丰富
+  side:  {appearance}，侧面全身角色设计图，动漫风格，白色背景，高清线稿
+  back:  {appearance}，背面全身角色设计图，动漫风格，白色背景，高清线稿
+  happy: {appearance}，脸部特写，开心灿烂笑容，动漫风格，白色背景
+  sad:   {appearance}，脸部特写，悲伤流泪表情，动漫风格，白色背景
+  angry: {appearance}，脸部特写，愤怒皱眉表情，动漫风格，白色背景
+  surprised: {appearance}，脸部特写，惊讶张嘴表情，动漫风格，白色背景
+  thinking:  {appearance}，脸部特写，思考歪头表情，动漫风格，白色背景
+  shy:       {appearance}，脸部特写，害羞脸红微笑，动漫风格，白色背景
+
+### 3. storyboard_generator.py
+Python 模块：
+- class StoryboardGenerator(api_key, base_url, image_api_url)
+- generate_storyboard(params: dict) -> dict
+  - params: {project_id, script_id, episode_num, style}
+  - 读取 data/scripts/{script_id}.json
+  - 对每个 scene 调用 _scene_to_panels() 生成 2-3 个分镜描述
+  - 对每个分镜提交图片生成任务
+  - 保存到 data/storyboards/{storyboard_id}.json
+  - 返回 {storyboard_id, episode_num, panels:[{panel_id,scene_id,shot_type,image_prompt,task_id,status,image_url}]}
+- _scene_to_panels(scene, style) -> list: 调用 LLM 生成分镜JSON数组
+  每个分镜：{shot_type(特写/近景/中景/全景/远景), camera_angle(平视/仰视/俯视), image_prompt(英文), dialogue_ref, duration_sec}
+- get_storyboard(storyboard_id) -> dict: 轮询更新各面板状态
+
+### 4. video_composer.py
+Python 模块：
+- class VideoComposer(api_key, base_url, seedance_api_url)
+- compose_video(params: dict) -> dict
+  - params: {project_id, storyboard_id, voice_config: {speaker, speed}}
+  - 读取分镜数据
+  - 对每个分镜图片提交 Seedance 图生视频任务
+  - 记录所有 task_id 到 data/video_tasks/{video_task_id}.json
+  - 返回 {video_task_id, status: 'processing', panels_count}
+- get_video_task(video_task_id) -> dict: 更新进度，全部完成后调用 _merge_with_ffmpeg
+- _merge_with_ffmpeg(video_paths, output_path): 用 subprocess 调用 ffmpeg 合并
+
+### 5. server_workflow_patch.py
+包含所有新路由的处理函数，格式为独立函数（通过 from server_workflow_patch import * 导入）：
+
+def handle_script_generate(handler, body) -> None     # POST /api/workflow/script/generate
+def handle_script_get(handler, script_id) -> None     # GET /api/workflow/script/{id}
+def handle_character_create(handler, body) -> None    # POST /api/workflow/character/create
+def handle_character_get(handler, char_id) -> None    # GET /api/workflow/character/{id}
+def handle_character_list(handler, project_id) -> None # GET /api/workflow/character/list/{project_id}
+def handle_storyboard_generate(handler, body) -> None  # POST /api/workflow/storyboard/generate
+def handle_storyboard_get(handler, sb_id) -> None      # GET /api/workflow/storyboard/{id}
+def handle_panel_regenerate(handler, panel_id, body) -> None  # POST /api/workflow/storyboard/panel/{id}/regenerate
+def handle_video_compose(handler, body) -> None        # POST /api/workflow/video/compose
+def handle_video_task_get(handler, task_id) -> None    # GET /api/workflow/video/task/{id}
+def handle_workflow_status(handler, project_id) -> None # GET /api/workflow/status/{project_id}
+
+每个函数调用 handler._send_json(data) 或 handler._send_error(code, msg) 返回响应。
+请先读取 server.py 确认正确的辅助方法签名。
+
+### 6. server.py（基于现有 server.py 扩展）
+在现有 server.py 基础上：
+1. 顶部增加：from server_workflow_patch import handle_script_generate, handle_script_get, handle_character_create, handle_character_get, handle_character_list, handle_storyboard_generate, handle_storyboard_get, handle_panel_regenerate, handle_video_compose, handle_video_task_get, handle_workflow_status
+2. 在 do_GET 末尾增加新路由匹配（workflow/script, workflow/character, workflow/storyboard, workflow/video, workflow/status）
+3. 在 do_POST 末尾增加新路由匹配
+4. 不删除、不修改任何现有路由
+5. 确保新路由经过与现有路由一样的 CORS 和 auth 处理
+
+新增路由 GET：
+  /api/workflow/script/{id}
+  /api/workflow/character/{id}
+  /api/workflow/character/list/{project_id}
+  /api/workflow/storyboard/{id}
+  /api/workflow/video/task/{id}
+  /api/workflow/status/{project_id}
+
+新增路由 POST：
+  /api/workflow/script/generate
+  /api/workflow/character/create
+  /api/workflow/storyboard/generate
+  /api/workflow/storyboard/panel/{id}/regenerate
+  /api/workflow/video/compose
+
+## 数据目录结构（在 D:/AiProject/AiComedyDrama/ 下）
+data/
+  scripts/        → {script_id}.json
+  characters/     → {character_id}.json
+  storyboards/    → {storyboard_id}.json
+  video_tasks/    → {video_task_id}/
+    panels/       → 视频片段
+    audio/        → TTS音频
+    output.mp4    → 最终合成
+
+## 重要约束
+- 全部用 Python 标准库（urllib, json, pathlib, subprocess, threading），不引入新依赖
+- 路径全用 pathlib.Path 处理，兼容 Windows
+- ID 生成格式参考现有 server.py 风格（看现有代码如何生成 project_id 等）
+- 从 .local-secrets.json 读取 api_key，BASE_URL 使用现有常量
+
+完成后，在 workspace 中创建 README_task1.md 说明各文件用途和合并到主项目的步骤。
