@@ -13,6 +13,8 @@ import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
+from mysql_storage import get_storage
+
 
 class CharacterFactory:
     """Factory for generating character assets via image generation API."""
@@ -21,39 +23,48 @@ class CharacterFactory:
     ASSET_TYPES = {
         'front_view': {
             'type': 'view',
-            'prompt_suffix': 'full body front view, standing pose, anime style, white background, high quality line art, character reference sheet'
+            'prompt_suffix': 'full body front view, standing pose in relaxed neutral stance, feet shoulder-width apart, arms naturally at sides, facing directly toward camera, clean white background, sharp high-quality line art, character reference sheet, full body visible from head to feet, even studio lighting, no shadows on background, consistent proportions',
+            'appearance_focus': ['face', 'hair', 'body', 'clothing', 'accessories']
         },
         'side_view': {
             'type': 'view',
-            'prompt_suffix': 'full body side view, standing pose, anime style, white background, high quality line art, character reference sheet'
+            'prompt_suffix': 'full body side view, 90-degree profile, standing pose, facing left, clean white background, sharp high-quality line art, character reference sheet, full body visible from head to feet, even studio lighting, showing clothing layers and silhouette details, bag and accessories visible from side angle',
+            'appearance_focus': ['hair', 'body', 'clothing', 'accessories']
         },
         'back_view': {
             'type': 'view',
-            'prompt_suffix': 'full body back view, standing pose, anime style, white background, high quality line art, character reference sheet'
+            'prompt_suffix': 'full body back view, standing pose facing away from camera, clean white background, sharp high-quality line art, character reference sheet, full body visible from head to feet, even studio lighting, showing back of hair, clothing details from behind, backpack or carried items visible',
+            'appearance_focus': ['hair', 'body', 'clothing', 'accessories']
         },
         'expression_happy': {
             'type': 'expression',
-            'prompt_suffix': 'portrait, happy expression, joyful smile, anime style, white background, high quality line art, facial expression reference'
+            'prompt_suffix': 'head and shoulders portrait, genuine happy expression, bright eyes with visible highlights, natural joyful smile showing slight teeth, raised cheeks, relaxed eyebrows, clean white background, sharp high-quality line art, facial expression reference sheet, consistent face structure with front view',
+            'appearance_focus': ['face', 'hair']
         },
         'expression_sad': {
             'type': 'expression',
-            'prompt_suffix': 'portrait, sad expression, downcast eyes, anime style, white background, high quality line art, facial expression reference'
+            'prompt_suffix': 'head and shoulders portrait, sad expression, downcast eyes with lowered gaze, slightly trembling lower lip, furrowed inner eyebrows, drooping mouth corners, subtle tear welling, clean white background, sharp high-quality line art, facial expression reference sheet, consistent face structure with front view',
+            'appearance_focus': ['face', 'hair']
         },
         'expression_angry': {
             'type': 'expression',
-            'prompt_suffix': 'portrait, angry expression, furrowed brows, anime style, white background, high quality line art, facial expression reference'
+            'prompt_suffix': 'head and shoulders portrait, angry expression, intensely furrowed brows, narrowed eyes with sharp glare, clenched jaw, flared nostrils, tightened lips, visible tension in neck muscles, clean white background, sharp high-quality line art, facial expression reference sheet, consistent face structure with front view',
+            'appearance_focus': ['face', 'hair']
         },
         'expression_surprised': {
             'type': 'expression',
-            'prompt_suffix': 'portrait, surprised expression, wide eyes, anime style, white background, high quality line art, facial expression reference'
+            'prompt_suffix': 'head and shoulders portrait, surprised expression, wide-open eyes with raised eyebrows, slightly open mouth, pupils dilated, head tilted slightly back, clean white background, sharp high-quality line art, facial expression reference sheet, consistent face structure with front view',
+            'appearance_focus': ['face', 'hair']
         },
         'expression_thinking': {
             'type': 'expression',
-            'prompt_suffix': 'portrait, thinking expression, contemplative look, anime style, white background, high quality line art, facial expression reference'
+            'prompt_suffix': 'head and shoulders portrait, thinking expression, one eyebrow slightly raised, eyes looking up and to the side, lips slightly pursed, chin tilted, contemplative gaze, clean white background, sharp high-quality line art, facial expression reference sheet, consistent face structure with front view',
+            'appearance_focus': ['face', 'hair']
         },
         'expression_shy': {
             'type': 'expression',
-            'prompt_suffix': 'portrait, shy expression, blushing, anime style, white background, high quality line art, facial expression reference'
+            'prompt_suffix': 'head and shoulders portrait, shy expression, slight blush on cheeks, eyes averted downward, chin tucked, subtle nervous smile, shoulders slightly raised, clean white background, sharp high-quality line art, facial expression reference sheet, consistent face structure with front view',
+            'appearance_focus': ['face', 'hair']
         }
     }
     
@@ -89,26 +100,36 @@ class CharacterFactory:
         for char_data in script.get('characters', []):
             character_id = self.generate_id('character')
             
-            # Create initial character data
+            # Create initial character data — prefer visual_prompt_template, fall back to appearance_description
+            appearance_desc = (
+                char_data.get('visual_prompt_template')
+                or char_data.get('appearance_description', '')
+            )
             character = {
                 'character_id': character_id,
                 'name': char_data.get('name', ''),
                 'project_id': script.get('project_id', ''),
                 'script_id': script.get('script_id', ''),
                 'personality': char_data.get('personality', ''),
-                'appearance_description': char_data.get('appearance_description', ''),
+                'appearance': char_data.get('appearance', {}),
+                'appearance_description': appearance_desc,
+                'visual_prompt_template': char_data.get('visual_prompt_template', ''),
+                'expression_library': char_data.get('expression_library', {}),
                 'role': char_data.get('role', ''),
                 'generation_status': 'pending',
                 'assets': {},
                 'created_at': self.now_iso(),
                 'updated_at': self.now_iso()
             }
-            
+
             # Initialize all 9 assets
+            appearance_obj = char_data.get('appearance', {})
             for asset_key, asset_config in self.ASSET_TYPES.items():
                 prompt = self._build_asset_prompt(
-                    char_data.get('appearance_description', ''),
-                    asset_config['prompt_suffix']
+                    appearance_desc,
+                    asset_config['prompt_suffix'],
+                    appearance_obj,
+                    asset_config.get('appearance_focus', [])
                 )
                 character['assets'][asset_key] = {
                     'asset_type': asset_key,
@@ -134,8 +155,29 @@ class CharacterFactory:
         
         return character_ids
     
-    def _build_asset_prompt(self, appearance_description, prompt_suffix):
-        """Build complete prompt for asset generation."""
+    def _build_asset_prompt(
+        self,
+        appearance_description: str,
+        prompt_suffix: str,
+        appearance_obj: dict | None = None,
+        appearance_focus: list[str] | None = None,
+    ) -> str:
+        """Build complete prompt for asset generation.
+
+        If structured *appearance_obj* is available, cherry-pick only the
+        sub-fields relevant to this asset type (via *appearance_focus*) so
+        the prompt is focused and under token limits.  Falls back to the
+        flat *appearance_description* string when structured data is absent.
+        """
+        if appearance_obj and appearance_focus:
+            parts = [
+                appearance_obj[key]
+                for key in appearance_focus
+                if key in appearance_obj and appearance_obj[key]
+            ]
+            if parts:
+                focused_desc = ", ".join(parts)
+                return f"{focused_desc}. {prompt_suffix}"
         return f"{appearance_description}. {prompt_suffix}"
     
     def _generate_assets_worker(self, character_id):
@@ -372,18 +414,21 @@ class CharacterFactory:
             character['generation_status'] = 'partial'
     
     def _save_character(self, character_id, character_data):
-        """Save character data to file."""
-        char_path = self.characters_dir / f"{character_id}.json"
-        with open(char_path, 'w', encoding='utf-8') as f:
-            json.dump(character_data, f, indent=2, ensure_ascii=False)
-    
+        """Save character data to MySQL."""
+        get_storage().upsert_document(
+            "character",
+            character_id,
+            character_data,
+            project_id=character_data.get("project_id"),
+            status=character_data.get("generation_status"),
+            title=character_data.get("name"),
+            created_at=character_data.get("created_at"),
+            updated_at=character_data.get("updated_at"),
+        )
+
     def _load_character(self, character_id):
-        """Load character data from file."""
-        char_path = self.characters_dir / f"{character_id}.json"
-        if not char_path.exists():
-            return None
-        with open(char_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        """Load character data from MySQL."""
+        return get_storage().get_document("character", character_id)
     
     def create_character(self, project_id, name, personality, appearance_desc, role_type, script_id=''):
         """
@@ -490,16 +535,11 @@ class CharacterFactory:
     def list_characters(self, project_id):
         """List all characters for a project in frontend-compatible format."""
         characters = []
-
-        for char_file in self.characters_dir.glob('*.json'):
+        for char_data in get_storage().list_documents("character", project_id=project_id):
             try:
-                with open(char_file, 'r', encoding='utf-8') as f:
-                    char_data = json.load(f)
-
-                if char_data.get('project_id') == project_id:
-                    characters.append(self._to_frontend_format(char_data))
+                characters.append(self._to_frontend_format(char_data))
             except Exception as e:
-                print(f"[CharacterFactory] Error reading character file {char_file}: {e}")
+                print(f"[CharacterFactory] Error reading character {char_data.get('character_id')}: {e}")
                 continue
 
         return characters

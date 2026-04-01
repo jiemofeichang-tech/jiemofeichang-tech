@@ -13,6 +13,8 @@ import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
+from mysql_storage import get_storage
+
 
 class ScriptEngine:
     """Engine for generating comedy drama scripts using LLM."""
@@ -53,7 +55,9 @@ class ScriptEngine:
             'status': 'pending',
             'title': None,
             'synopsis': None,
+            'story_bible': {},
             'characters': [],
+            'scenes': [],
             'episodes': [],
             'error_message': None,
             'created_at': self.now_iso(),
@@ -91,12 +95,14 @@ class ScriptEngine:
                 # Parse and validate
                 script_content = self._parse_script_response(generated)
                 
-                # Update with generated content
+                # Update with generated content — persist all top-level fields
                 script_data.update({
                     'status': 'completed',
                     'title': script_content['title'],
                     'synopsis': script_content['synopsis'],
+                    'story_bible': script_content.get('story_bible', {}),
                     'characters': script_content['characters'],
+                    'scenes': script_content.get('scenes', []),
                     'episodes': script_content['episodes'],
                     'updated_at': self.now_iso()
                 })
@@ -165,40 +171,138 @@ class ScriptEngine:
     
     def _call_llm_for_script(self, genre, theme, characters_count, episodes_count):
         """Call LLM API to generate script content."""
-        system_prompt = """You are a professional screenwriter specializing in comedy drama. Generate a complete script in JSON format with the following structure:
+        system_prompt = """You are a professional screenwriter and visual consistency architect.
+
+Your task: generate a PRODUCTION BIBLE — the single source of truth for all downstream image generation. You produce the archives (story_bible, characters, scenes) and the narrative structure (episode beats). You do NOT produce per-panel image prompts; downstream code will assemble those by referencing your archives.
+
+Return a JSON object with the structure below. Field comments after // explain what is expected.
 
 {
-  "title": "Script Title",
-  "synopsis": "Brief synopsis (minimum 20 words)",
+  "title": "Script title",
+  "synopsis": "20+ word synopsis",
+
+  "story_bible": {
+    "genre": "e.g. cyberpunk thriller",
+    "era": "e.g. 2077 Neo-Tokyo",
+    "art_style": "English keyword string for image generation, e.g. anime cel-shading style, detailed illustration, clean lineart",
+    "color_palette": "master palette keywords, e.g. cold blue shadows, neon cyan and pink accents, warm amber highlights",
+    "lighting_style": "global lighting keywords, e.g. cinematic side lighting, strong rim light, film noir shadows",
+    "tone": "e.g. oppressive yet warm",
+    "theme": "core theme in one sentence",
+    "world_rules": ["rule 1", "rule 2"]
+  },
+
   "characters": [
+    // IMPORTANT: If a character is an animal, creature, spirit, monster, or any non-human entity,
+    // the appearance fields MUST describe its actual non-human form (e.g. a sparrow should be described as a small bird with brown feathers, not as a human).
+    // Only describe humanoid appearance for characters that are actually human or humanoid in the story.
     {
-      "name": "Character Name",
+      "id": "char_01",
+      "name": "Display Name",
+      "name_en": "English name for prompts",
       "role": "protagonist|antagonist|supporting|comic_relief",
-      "personality": "Detailed personality description (minimum 20 words)",
-      "appearance_description": "Detailed visual description for image generation (minimum 50 words, include hair color/style, clothing, body build, facial features, distinctive characteristics)"
+      "species": "human|animal|spirit|creature — specify actual species if non-human (e.g. sparrow, fox, dragon)",
+      "personality": "20+ word personality description",
+      "speaking_style": "e.g. cold and terse",
+      "appearance": {
+        // For non-human characters (animals, creatures, spirits): describe their actual animal/creature form instead of human features.
+        // e.g. for a sparrow: face="small round head, black bead-like eyes, short pointed beak", body="tiny 14cm bird, round body, brown and grey feathers", etc.
+        "face": "face shape, eye color+shape, eyebrow, jaw, skin tone, marks (or animal head/face features if non-human)",
+        "hair": "exact color+tone, style, length, texture, accessories (or fur/feathers/scales if non-human)",
+        "body": "height cm, build, posture (or animal body shape, size, coloring if non-human)",
+        "clothing": "top (material+color), bottom, footwear, layers (omit or use 'none' for animals)",
+        "accessories": "jewelry, weapons, bags — specific (omit or use 'none' for animals)",
+        "signature_traits": "2-3 identifiers visible in wide shots"
+      },
+      "appearance_description": "80+ word English paragraph combining ALL appearance fields into one continuous image-generation prompt prefix. Must be detailed enough to recreate the exact same character consistently across multiple images.",
+      "visual_prompt_template": "Comma-separated English keywords optimized for character turnaround sheet generation. Must include: gender, age range, ethnicity/skin tone, face details, hair (color+style+length), body type (height+build), complete outfit description (top+bottom+shoes), accessories, and 2-3 signature visual traits. Example format: young Asian woman, early 20s, fair skin, oval face, large brown eyes, long straight black hair with bangs, petite 160cm slender build, white blouse with peter pan collar, navy pleated midi skirt, brown loafers, small gold stud earrings, red leather shoulder bag",
+      "expression_library": {
+        "neutral": "calm expression, relaxed brows, steady gaze",
+        "happy": "bright eyes, natural smile, raised cheeks",
+        "angry": "furrowed brows, clenched jaw, flared nostrils",
+        "sad": "downcast eyes, drooping mouth, furrowed inner brows",
+        "shocked": "wide eyes, raised brows, open mouth",
+        "determined": "narrowed eyes, set jaw, forward lean",
+        "thinking": "one brow raised, eyes upward, lips pursed",
+        "shy": "averted eyes, slight blush, chin tucked"
+      }
     }
   ],
+
+  "scenes": [
+    {
+      "scene_id": "sc_01",
+      "scene_name": "e.g. Lin's Apartment",
+      "location": "location name",
+      "type": "interior|exterior|virtual",
+      "time_of_day": "morning|afternoon|evening|night",
+      "mood": "tense|peaceful|chaotic|romantic|mysterious|humorous|melancholic|epic",
+      "characters_present": ["char_01"],
+      "environment_anchors": {
+        "architecture": "style + materials, e.g. cramped cyberpunk apartment, low ceiling, exposed pipes",
+        "key_objects": ["landmark 1", "landmark 2", "landmark 3"],
+        "materials_textures": "dominant surfaces, e.g. concrete walls, metallic, cracked asphalt",
+        "ground_surface": "e.g. wet concrete floor with oil stains",
+        "color_palette": "scene palette inheriting from story_bible",
+        "lighting": "source + direction + temperature, e.g. dim monitor glow from left, cold neon from right window",
+        "atmosphere": "keywords, e.g. claustrophobic, tech-cluttered"
+      },
+      "visual_prompt_template": "English keyword string combining ALL environment_anchors — used by code to build panel backgrounds",
+      "variant_conditions": {
+        "action": "atmosphere shift for tension (optional, omit if not applicable)",
+        "emotional": "atmosphere shift for emotional beats (optional)"
+      },
+      "character_scene_notes": [
+        {
+          "character_id": "char_01",
+          "emotional_state": "start → end arc, e.g. wary → trusting",
+          "expression_key": "primary key from expression_library, e.g. determined",
+          "clothing_change": "delta from base (e.g. jacket removed, blood on shirt) or same as base",
+          "spatial_position": "fixed position, e.g. standing left of broken window, leaning on wall"
+        }
+      ]
+    }
+  ],
+
   "episodes": [
     {
       "episode_number": 1,
       "title": "Episode Title",
+      "episode_scenes": ["sc_01", "sc_02", "sc_03"],
       "scenes": [
         {
-          "scene_number": 1,
-          "location": "Location name",
-          "time_of_day": "morning|afternoon|evening|night",
-          "action_description": "What happens in the scene (minimum 20 words)",
+          "scene_id": "sc_01",
+          "description": "scene action summary for this episode",
+          "dialogues": [{"character": "char_01", "text": "line"}]
+        }
+      ],
+      "beats": [
+        {
+          "beat_number": 1,
+          "scene_id": "sc_01",
+          "emotion": "core emotion",
+          "narrative_function": "setup|escalation|turning-point|climax|resolution|cliffhanger",
+          "action_description": "20+ word description of what happens",
+          "characters_involved": ["char_01"],
           "dialogue": [
             {
-              "character_name": "Character Name",
-              "emotion": "neutral|happy|sad|angry|surprised|thinking|shy",
-              "text": "Dialogue text (minimum 5 words)"
+              "character_id": "char_01",
+              "expression_key": "key from expression_library",
+              "text": "dialogue text",
+              "tone": "e.g. whispered, shouted, deadpan"
             }
           ],
-          "panel_suggestions": [
+          "suggested_shots": [
             {
-              "suggested_shot_type": "close-up|medium|full-body|wide|establishing",
-              "description": "Shot description (minimum 15 words)"
+              "shot_size": "wide|medium|close-up|extreme-close-up",
+              "focal_length": "24mm|50mm|85mm|135mm",
+              "composition": "rule-of-thirds|center|diagonal|frame-within-frame",
+              "camera_movement": "static|push-in|pull-back|pan|tracking|whip-pan|handheld",
+              "char_refs": ["char_01"],
+              "action": "what the character is doing",
+              "lighting_shift": "any shift from scene base lighting, or null",
+              "transition": "hard-cut|dissolve|match-cut|fade",
+              "narrative_purpose": "why this shot exists"
             }
           ]
         }
@@ -207,57 +311,74 @@ class ScriptEngine:
   ]
 }
 
-IMPORTANT: Return ONLY valid JSON. Do not include markdown code blocks or explanatory text."""
+RULES:
+1. NO text/subtitles/watermarks/speech-bubbles in any visual description
+2. NO music references in visual descriptions
+3. NO prologues or narrated introductions — story starts with action
+4. visual_prompt_template for characters = complete English image prompt prefix; downstream code copies this into every panel
+5. visual_prompt_template for scenes = complete English environment prompt; downstream code copies this into every panel
+6. expression_library: each value is a precise English facial description; downstream code selects by key
+7. Protagonists: fill all 8 expression keys. Supporting characters: fill neutral + 2-3 that the story actually uses
+8. variant_conditions: only fill variants the story actually uses; omit unused ones
+9. character_scene_notes.clothing_change: if a character is injured/dirtied in scene N, ALL subsequent scenes must reflect the damage unless explicitly healed/changed
+10. Time-of-day progression must be logical across episodes (morning → afternoon → evening)
+11. environment_anchors.key_objects: exactly 3 landmark objects per scene; these will be tracked as recurring props
 
-        user_prompt = f"""Generate a {genre} script with the following parameters:
+IMPORTANT: Return ONLY valid JSON. No markdown code blocks. No explanatory text."""
+
+        user_prompt = f"""Generate a {genre} production bible:
 
 Theme: {theme}
-Number of Characters: {characters_count}
-Number of Episodes: {episodes_count}
+Characters: {characters_count}
+Episodes: {episodes_count}
 
-Create detailed, engaging content with:
-- {characters_count} unique characters with distinct personalities and visual descriptions
-- {episodes_count} episode(s), each with at least 3 scenes
-- Each scene should have at least 2 dialogue exchanges
-- Each scene should have 2-3 panel suggestions
+Requirements:
+- story_bible: art_style, color_palette, lighting_style as English keyword strings for image generation
+- {characters_count} characters with full appearance object + visual_prompt_template + expression_library
+- Minimum 3 scenes per episode with environment_anchors + visual_prompt_template + character_scene_notes
+- {episodes_count} episode(s), each with 3-6 narrative beats
+- Each beat has: scene_id, emotion, characters_involved, dialogue with expression_keys, and 1-3 suggested_shots (shot_size, focal_length, composition, camera_movement, action, transition, narrative_purpose)
+- suggested_shots are lightweight — downstream code will build full image prompts by assembling character and scene templates
+- Clothing damage, environmental damage, and prop state changes must accumulate across scenes
 
-Return the complete script as a JSON object matching the schema provided."""
+Return JSON only."""
 
-        # Prepare API request
-        url = f"{self.config['base_url']}/messages"
+        # Prepare API request (OpenAI Chat Completions 兼容格式)
+        url = self.config.get('ai_chat_base') or self.config.get('base_url', '')
+        if not url.endswith('/chat/completions'):
+            url = url.rstrip('/') + '/chat/completions' if '/v1' in url else url
+        api_key = self.config.get('ai_chat_key') or self.config.get('api_key', '')
         headers = {
             'Content-Type': 'application/json',
-            'x-api-key': self.config['api_key'],
-            'anthropic-version': '2023-06-01'
+            'Authorization': f'Bearer {api_key}',
         }
-        
+
         data = {
-            'model': 'claude-opus-4-20250514',
-            'max_tokens': 8000,
-            'system': system_prompt,
+            'model': self.config.get('model', 'gemini-2.5-pro'),
+            'max_tokens': 10000,
             'messages': [
-                {'role': 'user', 'content': user_prompt}
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': user_prompt},
             ]
         }
-        
-        # Make request
+
         req = urllib.request.Request(
             url,
             data=json.dumps(data).encode(),
             headers=headers,
             method='POST'
         )
-        
-        with urllib.request.urlopen(req, timeout=30) as response:
+
+        # 绕过系统代理，避免 SSL 握手失败
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=300) as response:
             result = json.loads(response.read().decode())
-            return result['content'][0]['text']
+            return result['choices'][0]['message']['content']
     
     def _parse_script_response(self, response):
         """Parse LLM response and extract JSON, handling markdown code blocks."""
-        # Try to extract JSON from markdown code blocks
         response = response.strip()
-        
-        # Check for markdown code blocks
+
         if '```json' in response:
             start = response.find('```json') + 7
             end = response.find('```', start)
@@ -268,35 +389,158 @@ Return the complete script as a JSON object matching the schema provided."""
             end = response.find('```', start)
             if end != -1:
                 response = response[start:end].strip()
-        
-        # Parse JSON
+
         script_data = json.loads(response)
-        
-        # Basic validation
-        if 'title' not in script_data or not script_data['title']:
+
+        # --- required top-level fields ---
+        if not script_data.get('title'):
             raise ValueError('Script missing title')
-        if 'synopsis' not in script_data or not script_data['synopsis']:
+        if not script_data.get('synopsis'):
             raise ValueError('Script missing synopsis')
-        if 'characters' not in script_data or not isinstance(script_data['characters'], list):
+        if not isinstance(script_data.get('characters'), list) or not script_data['characters']:
             raise ValueError('Script missing characters array')
-        if 'episodes' not in script_data or not isinstance(script_data['episodes'], list):
+        if not isinstance(script_data.get('episodes'), list) or not script_data['episodes']:
             raise ValueError('Script missing episodes array')
-        
+
+        # --- character archive validation ---
+        for char in script_data['characters']:
+            name = char.get('name', '?')
+            if not char.get('visual_prompt_template'):
+                raise ValueError(f"Character '{name}' missing visual_prompt_template")
+            if not char.get('expression_library'):
+                raise ValueError(f"Character '{name}' missing expression_library")
+            # Ensure appearance_description exists for downstream compatibility
+            if not char.get('appearance_description') and char.get('visual_prompt_template'):
+                char['appearance_description'] = char['visual_prompt_template']
+
+        # --- scene archive validation ---
+        for scene in script_data.get('scenes', []):
+            sid = scene.get('scene_id', '?')
+            if not scene.get('visual_prompt_template'):
+                raise ValueError(f"Scene '{sid}' missing visual_prompt_template")
+            if not scene.get('environment_anchors'):
+                raise ValueError(f"Scene '{sid}' missing environment_anchors")
+
+        # --- episode/beat validation (lightweight — no panels to check) ---
+        for ep in script_data['episodes']:
+            if not ep.get('beats') and not ep.get('scenes'):
+                raise ValueError(f"Episode {ep.get('episode_number', '?')} has no beats and no scenes")
+
+        # --- Frontend compatibility mapping ---
+        # Frontend ScriptAnalysis expects different field names than production bible schema.
+        # Map backend fields → frontend fields while preserving originals for backend consumers.
+
+        # Characters: visual_prompt_template → three_view_prompts, expression_library → expression_prompts
+        for char in script_data['characters']:
+            vpt = char.get('visual_prompt_template', '')
+            if vpt and not char.get('three_view_prompts'):
+                char['three_view_prompts'] = {'front': vpt, 'side': vpt, 'back': vpt}
+            el = char.get('expression_library', {})
+            if el and not char.get('expression_prompts'):
+                char['expression_prompts'] = el
+            # Map id → char_id for frontend
+            if char.get('id') and not char.get('char_id'):
+                char['char_id'] = char['id']
+            # Ensure costume field exists (frontend expects separate costume object)
+            if not char.get('costume') and char.get('appearance', {}).get('clothing'):
+                char['costume'] = {'main': char['appearance']['clothing']}
+                if char['appearance'].get('accessories'):
+                    char['costume']['accessories'] = char['appearance']['accessories']
+
+        # Scenes: visual_prompt_template → six_view_prompts, environment_anchors → environment/lighting
+        for scene in script_data.get('scenes', []):
+            vpt = scene.get('visual_prompt_template', '')
+            if vpt and not scene.get('six_view_prompts'):
+                scene['six_view_prompts'] = {
+                    'front': vpt, 'left': vpt, 'right': vpt,
+                    'back': vpt, 'top': vpt, 'detail': vpt
+                }
+            anchors = scene.get('environment_anchors', {})
+            if anchors and not scene.get('environment'):
+                scene['environment'] = anchors
+            if not scene.get('name'):
+                scene['name'] = scene.get('scene_name', scene.get('scene_id', ''))
+            if not scene.get('description'):
+                scene['description'] = scene.get('location', '')
+            if not scene.get('lighting') and anchors.get('lighting'):
+                scene['lighting'] = {'main': anchors['lighting']}
+            if not scene.get('color_grading') and anchors.get('color_palette'):
+                scene['color_grading'] = anchors['color_palette']
+
+        # Episodes: flatten beats.suggested_shots → scenes.shots for frontend
+        for ep in script_data['episodes']:
+            # Map episode_number → episode_id
+            if ep.get('episode_number') and not ep.get('episode_id'):
+                ep['episode_id'] = ep['episode_number']
+            # Build scenes with shots from beats
+            if ep.get('beats') and ep.get('scenes'):
+                for ep_scene in ep['scenes']:
+                    sid = ep_scene.get('scene_id', '')
+                    # Ensure scene_ref exists (frontend uses scene_ref || scene_id)
+                    if not ep_scene.get('scene_ref'):
+                        ep_scene['scene_ref'] = sid
+                    # Derive emotion from first beat for this scene
+                    if not ep_scene.get('emotion'):
+                        for beat in ep.get('beats', []):
+                            if beat.get('scene_id') == sid and beat.get('emotion'):
+                                ep_scene['emotion'] = beat['emotion']
+                                break
+                    # Collect suggested_shots from beats belonging to this scene
+                    shots = []
+                    for beat in ep.get('beats', []):
+                        if beat.get('scene_id') == sid:
+                            for ss in beat.get('suggested_shots', []):
+                                shots.append({
+                                    'shot_type': ss.get('shot_size', 'medium'),
+                                    'subject': ', '.join(ss.get('char_refs', [])),
+                                    'action': ss.get('action', ''),
+                                    'camera_movement': ss.get('camera_movement', 'static'),
+                                    'duration': '2-4s',
+                                    'lighting_note': ss.get('lighting_shift'),
+                                })
+                    if shots and not ep_scene.get('shots'):
+                        ep_scene['shots'] = shots
+                    # Ensure dialogues array exists
+                    if not ep_scene.get('dialogues'):
+                        dlgs = []
+                        for beat in ep.get('beats', []):
+                            if beat.get('scene_id') == sid:
+                                for d in beat.get('dialogue', []):
+                                    dlgs.append({
+                                        'character': d.get('character_id', ''),
+                                        'text': d.get('text', ''),
+                                        'emotion': d.get('expression_key', ''),
+                                        'duration_hint': ''
+                                    })
+                        if dlgs:
+                            ep_scene['dialogues'] = dlgs
+
+        # Ensure top-level fields frontend expects
+        if not script_data.get('genre'):
+            script_data['genre'] = script_data.get('story_bible', {}).get('genre', '')
+        if not script_data.get('style'):
+            script_data['style'] = script_data.get('story_bible', {}).get('art_style', '')
+        if not script_data.get('visual_style_guide') and script_data.get('story_bible'):
+            script_data['visual_style_guide'] = script_data['story_bible']
+
         return script_data
     
     def _save_script(self, script_id, script_data):
-        """Save script data to file."""
-        script_path = self.scripts_dir / f"{script_id}.json"
-        with open(script_path, 'w', encoding='utf-8') as f:
-            json.dump(script_data, f, indent=2, ensure_ascii=False)
-    
+        """Save script data to MySQL."""
+        get_storage().upsert_document(
+            "script",
+            script_id,
+            script_data,
+            project_id=script_data.get("project_id"),
+            status=script_data.get("status"),
+            title=script_data.get("title"),
+            created_at=script_data.get("created_at"),
+            updated_at=script_data.get("updated_at"),
+        )
+
     def _load_script(self, script_id):
-        """Load script data from file."""
-        script_path = self.scripts_dir / f"{script_id}.json"
-        if not script_path.exists():
-            return None
-        with open(script_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        """Load script data from MySQL."""
+        return get_storage().get_document("script", script_id)
     
     def get_script(self, script_id):
         """Get script by ID."""

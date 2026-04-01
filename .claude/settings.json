@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python d:AiProjectAiComedyDramacheck_paths.py)",
+      "Bash(xxd -l 100 -s 0 d:AiProjectAiComedyDramaserver.py)",
+      "Bash(python3 -c \"import py_compile; py_compile.compile\\(''server.py'', doraise=True\\)\")",
+      "Bash(python -m py_compile server.py)",
+      "Bash(curl -s -v http://127.0.0.1:8787/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"\"\"username\"\"\"\":\"\"\"\"testuser\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"test123456\"\"\"\"}')",
+      "Bash(py -3 -c \"import ast; ast.parse\\(open\\(''server.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(node -e \"const fs=require\\(''fs''\\); const s=fs.readFileSync\\(''server.py'',''utf8''\\); const lines=s.split\\(''\\\\n''\\); let indent=0; let err=false; for\\(let i=0;i<lines.length;i++\\){const l=lines[i]; if\\(l.includes\\(''SyntaxError''\\)\\){console.log\\(i+1,l\\); err=true;}} if\\(!err\\) console.log\\(''No obvious syntax errors, ''+lines.length+'' lines''\\)\")",
+      "Bash(curl -s -v http://127.0.0.1:8787/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"\"\"username\"\"\"\":\"\"\"\"admin\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"123456\"\"\"\"}')",
+      "Bash(SID=\"4f985294cb21ec7989e8e874e25eafed90ac5e0d35e979bf1be54a5fe9c6bdc7\")",
+      "Bash(curl -s -b \"sid=$SID\" -X POST http://127.0.0.1:8787/api/ai/chat/stream -H \"Content-Type: application/json\" -d @/tmp/test_script_analysis.json --max-time 120)",
+      "Bash(curl -s http://127.0.0.1:8787/api/auth/register -H \"Content-Type: application/json\" -d '{\"\"username\"\":\"\"debugtest\"\",\"\"password\"\":\"\"debug123456\"\"}')",
+      "Bash(curl -s -v http://127.0.0.1:8787/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"\"\"username\"\"\"\":\"\"\"\"debugtest\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"debug123456\"\"\"\"}')",
+      "Bash(curl -s -c - http://127.0.0.1:8787/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"username\"\":\"\"debugtest\"\",\"\"password\"\":\"\"debug123456\"\"}')",
+      "Bash(curl -s -v http://127.0.0.1:3001/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"\"\"username\"\"\"\":\"\"\"\"debugtest\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"debug123456\"\"\"\"}')",
+      "Bash(curl -s http://127.0.0.1:8787/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"username\"\":\"\"admin\"\",\"\"password\"\":\"\"123456\"\"}')",
+      "Bash(wmic process:*)",
+      "Bash(powershell -Command \"Get-Process python -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_Id $_Path }\")",
+      "Bash(curl -sL https://xcnvu9v7nkg7.feishu.cn/docx/Wm2gdwsRMoK8dLxRncHcdpm7nrg --connect-timeout 15 --max-time 30 -H \"User-Agent: Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36\" -H 'Accept: text/html')",
+      "Bash(curl -s -b \"sid=$SID\" -X POST http://127.0.0.1:8787/api/ai/chat/stream -H \"Content-Type: application/json\" -d '{\"\"model\"\":\"\"claude-sonnet-4-6\"\",\"\"messages\"\":[{\"\"role\"\":\"\"system\"\",\"\"content\"\":\"\"你是助手。请用JSON格式回答，包含title和summary字段。\"\"},{\"\"role\"\":\"\"user\"\",\"\"content\"\":\"\"分析一个故事：一个修仙世界的短剧\"\"}],\"\"max_tokens\"\":500}' --max-time 30)",
+      "Bash(curl -s --connect-timeout 3 http://127.0.0.1:8787/api/config)",
+      "Bash(curl -s -X POST http://127.0.0.1:8787/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"username\"\":\"\"e2etest\"\",\"\"password\"\":\"\"test1234\"\"}' -c /tmp/c3.txt)",
+      "Bash(curl -s http://127.0.0.1:8787/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"username\"\":\"\"testuser\"\",\"\"password\"\":\"\"test123\"\"}')",
+      "Bash(curl -s -w \"\\\\nHTTP:%{http_code}\" -X POST \"http://peiqian.icu/v1/chat/completions\" -H \"Authorization: Bearer sk-firstapi-b87240c0ba6d47728f50\" -H \"Content-Type: application/json\" -d '{\"\"model\"\":\"\"claude-sonnet-4-6\"\",\"\"messages\"\":[{\"\"role\"\":\"\"user\"\",\"\"content\"\":\"\"hi\"\"}],\"\"max_tokens\"\":5}' --connect-timeout 10 --max-time 20)",
+      "Bash(/c/Users/power/AppData/Local/Programs/Python/Python312/python.exe:*)",
+      "Bash(curl -s -w \"\\\\nHTTP_STATUS:%{http_code}\" -X POST \"http://peiqian.icu/v1/chat/completions\" -H \"Authorization: Bearer sk-firstapi-b87240c0ba6d47728f50\" -H \"Content-Type: application/json\" -d \"{\"\"model\"\":\"\"oneplus-4.6\"\",\"\"messages\"\":[{\"\"role\"\":\"\"user\"\",\"\"content\"\":\"\"hello\"\"}],\"\"max_tokens\"\":10}\" --connect-timeout 15 --max-time 30)",
+      "Bash(curl -s -w \"\\\\nHTTP:%{http_code}\" -X POST \"http://peiqian.icu/v1/chat/completions\" -H \"Authorization: Bearer sk-firstapi-b87240c0ba6d47728f50\" -H \"Content-Type: application/json\" -d \"{\"\"model\"\":\"\"oneplus4.6\"\",\"\"messages\"\":[{\"\"role\"\":\"\"user\"\",\"\"content\"\":\"\"hi\"\"}],\"\"max_tokens\"\":5}\" --connect-timeout 10 --max-time 20)",
+      "Bash(curl -s -w \"\\\\nHTTP:%{http_code}\" -X POST \"http://peiqian.icu/v1/chat/completions\" -H \"Authorization: Bearer sk-firstapi-b87240c0ba6d47728f50\" -H \"Content-Type: application/json\" -d \"{\"\"model\"\":\"\"one-plus-4.6\"\",\"\"messages\"\":[{\"\"role\"\":\"\"user\"\",\"\"content\"\":\"\"hi\"\"}],\"\"max_tokens\"\":5}\" --connect-timeout 10 --max-time 20)",
+      "Bash(curl -s -w \"\\\\nHTTP:%{http_code}\" -X POST \"http://peiqian.icu/v1/chat/completions\" -H \"Authorization: Bearer sk-firstapi-b87240c0ba6d47728f50\" -H \"Content-Type: application/json\" -d \"{\"\"model\"\":\"\"o1-plus-4.6\"\",\"\"messages\"\":[{\"\"role\"\":\"\"user\"\",\"\"content\"\":\"\"hi\"\"}],\"\"max_tokens\"\":5}\" --connect-timeout 10 --max-time 20)",
+      "Bash(curl -s -w \"\\\\nHTTP:%{http_code}\" -X POST \"http://peiqian.icu/v1/chat/completions\" -H \"Authorization: Bearer sk-firstapi-b87240c0ba6d47728f50\" -H \"Content-Type: application/json\" -d \"{\"\"model\"\":\"\"one-plus4.6\"\",\"\"messages\"\":[{\"\"role\"\":\"\"user\"\",\"\"content\"\":\"\"hi\"\"}],\"\"max_tokens\"\":5}\" --connect-timeout 10 --max-time 20)",
+      "Bash(curl -s -w \"\\\\nHTTP:%{http_code}\" \"http://peiqian.icu/v1/models\" -H \"Authorization: Bearer sk-firstapi-b87240c0ba6d47728f50\" --connect-timeout 10 --max-time 20)",
+      "Bash(curl -s -w \"\\\\nHTTP_STATUS:%{http_code}\" -X POST \"http://peiqian.icu/v1/chat/completions\" -H \"Authorization: Bearer sk-firstapi-b87240c0ba6d47728f50\" -H \"Content-Type: application/json\" -d \"{\"\"model\"\":\"\"claude-opus-4-6\"\",\"\"messages\"\":[{\"\"role\"\":\"\"user\"\",\"\"content\"\":\"\"hello\"\"}],\"\"max_tokens\"\":10}\" --connect-timeout 15 --max-time 30)",
+      "Bash(printf ':*)"
+    ]
+  }
+}

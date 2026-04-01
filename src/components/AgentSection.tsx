@@ -7,8 +7,8 @@ const agents = [
     name: "艺术总监",
     nameEn: "Art Director",
     desc: "统筹整个项目的艺术风格与视觉呈现，确保艺术品质",
-    color: "#ef319f",
-    bgColor: "rgba(239,49,159,0.08)",
+    color: "#FF8C00",
+    bgColor: "rgba(255,140,0,0.08)",
     icon: "🎨",
   },
   {
@@ -55,8 +55,8 @@ const agents = [
     name: "音效总监",
     nameEn: "Sound Director",
     desc: "负责音乐创作与声音设计，打造完美的听觉体验",
-    color: "#fd69cf",
-    bgColor: "rgba(253,105,207,0.08)",
+    color: "#FFA500",
+    bgColor: "rgba(255,165,0,0.08)",
     icon: "🎵",
   },
 ];

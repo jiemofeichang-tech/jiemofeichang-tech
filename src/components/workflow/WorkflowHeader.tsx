@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import type { WorkflowStage } from "@/lib/store";
+import { useState, useEffect, useRef } from "react";
+import type { WorkflowStage, StageStatus } from "@/lib/store";
 import StageIndicator from "./StageIndicator";
 import AiConfigDialog from "./AiConfigDialog";
 
@@ -11,6 +11,8 @@ interface WorkflowHeaderProps {
   onStageChange: (stage: WorkflowStage) => void;
   onBack: () => void;
   onTitleChange?: (title: string) => void;
+  stageStatuses?: Record<WorkflowStage, StageStatus>;
+  workflowMode?: "interactive" | "auto";
 }
 
 export default function WorkflowHeader({
@@ -20,10 +22,16 @@ export default function WorkflowHeader({
   onStageChange,
   onBack,
   onTitleChange,
+  stageStatuses,
+  workflowMode,
 }: WorkflowHeaderProps) {
   const [configOpen, setConfigOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(projectTitle);
+  const savedRef = useRef(false);  // 防止 onBlur + Enter 双重触发
+
+  // 同步 prop 变化
+  useEffect(() => { setTitle(projectTitle); }, [projectTitle]);
 
   return (
     <>
@@ -58,8 +66,18 @@ export default function WorkflowHeader({
             autoFocus
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            onBlur={() => { setEditing(false); onTitleChange?.(title); }}
-            onKeyDown={(e) => { if (e.key === "Enter") { setEditing(false); onTitleChange?.(title); } }}
+            onBlur={() => {
+              if (!savedRef.current) { onTitleChange?.(title); }
+              savedRef.current = false;
+              setEditing(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                savedRef.current = true;
+                onTitleChange?.(title);
+                setEditing(false);
+              }
+            }}
             style={{
               fontSize: 14,
               fontWeight: 600,
@@ -90,11 +108,11 @@ export default function WorkflowHeader({
               color: "#888",
             }}
           >
-            {projectStatus}
+            {{ draft: "草稿", script_parsed: "剧本已解析", assets_locked: "资产已锁定", storyboard_done: "分镜完成", video_done: "视频完成", compositing: "合成中", done: "已完成" }[projectStatus] || projectStatus}
           </span>
         </div>
 
-        <StageIndicator currentStage={currentStage} onStageChange={onStageChange} />
+        <StageIndicator currentStage={currentStage} onStageChange={onStageChange} stageStatuses={stageStatuses} />
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button

@@ -1,23 +1,31 @@
 ---
-description: 启动 OiiOii 前后端项目（即梦后端 + OII前端）
+description: 启动项目（后端 8787 + 前端 3001），失败时优先按已知问题记录排查
 ---
 
-请按以下步骤启动项目：
+在执行启动前，先读这些文件：
+- `CLAUDE.md`
+- `AGENTS.md`
+- `docs/启动问题记录-20260329.md`
 
-1. 先停掉可能残留的旧进程：
-   - 用 `powershell.exe -Command "Stop-Process -Name node -Force -ErrorAction SilentlyContinue; Stop-Process -Name python -Force -ErrorAction SilentlyContinue"` 杀掉旧的 node 和 python 进程
-   - 等待 2 秒确认端口 3000 和 8787 已释放
-   - 清理 Next.js lock 文件：`rm -f "E:/AI工作流/oii前端/oiioii-clone/.next/dev/lock"`
+如果任务是启动项目或排查启动失败，按下面顺序执行：
 
-2. 启动后端（Python，端口 8787）：
-   - 在后台运行 `cd "E:/AI工作流" && python server.py`
-   - 等待启动后用 `curl http://127.0.0.1:8787/api/health` 验证返回 `{"ok": true}`
+1. 清理残留进程
+   - `powershell.exe -Command "Stop-Process -Name node -Force -ErrorAction SilentlyContinue; Stop-Process -Name python -Force -ErrorAction SilentlyContinue"`
 
-3. 启动前端（Next.js，端口 3000）：
-   - 在后台运行 `cd "E:/AI工作流/oii前端/oiioii-clone" && npx next dev --port 3000`
-   - 等待启动后用 `curl -o /dev/null -w "%{http_code}" http://localhost:3000/` 验证返回 200
+2. 启动后端（仓库根目录）
+   - `python server.py`
+   - 用 `curl http://127.0.0.1:8787/api/health` 验证返回 `{"ok": true}`
 
-4. 输出最终状态：
-   - 后端地址：http://127.0.0.1:8787
-   - 前端地址：http://localhost:3000
-   - 告知用户在浏览器打开 http://localhost:3000 即可使用
+3. 启动前端（仓库根目录）
+   - 前台：`npm run dev`
+   - Windows 后台：`Start-Process (Get-Command npm.cmd).Source -WorkingDirectory 'D:\AiProject\AiComedyDrama' -ArgumentList 'run','dev'`
+   - 用 `curl http://localhost:3001/login` 验证页面可访问
+
+4. 如果启动失败
+   - 先对照 `docs/启动问题记录-20260329.md`
+   - 查看 `server_live_err.log`、`next_live_err.log`、`server_err.log`、`next_err.log`
+   - 只有在确认不是启动方式、端口冲突、代理/VPN 或已知问题后，再修改代码
+
+最终应输出：
+- 后端：`http://127.0.0.1:8787`
+- 前端：`http://localhost:3001/login`

@@ -10,6 +10,8 @@ import type {
   WfPanel,
   WfVideoTask,
   WfWorkflowStatus,
+  WfPipelineState,
+  WfCheckpoint,
 } from '@/types/workflow';
 
 const BASE = '/api/workflow';
@@ -134,4 +136,48 @@ export function wfGetVideoTask(taskId: string): Promise<WfVideoTask> {
 
 export function wfGetWorkflowStatus(projectId: string): Promise<WfWorkflowStatus> {
   return apiFetch<WfWorkflowStatus>(`/status/${projectId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline (Harness 三 Agent 管线)
+// ---------------------------------------------------------------------------
+
+export interface StartPipelineParams {
+  project_id: string;
+  genre: string;
+  theme: string;
+  characters_count: number;
+  episodes_count: number;
+}
+
+/** 启动完整的自动化管线 */
+export function wfStartPipeline(
+  params: StartPipelineParams
+): Promise<{ pipeline_id: string; project_id: string; status: string; current_stage: string }> {
+  return apiFetch('/pipeline/start', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
+
+/** 从检查点恢复管线 */
+export function wfResumePipeline(
+  projectId: string
+): Promise<{ pipeline_id: string; status: string; current_stage: string; resumed_from: string }> {
+  return apiFetch('/pipeline/resume', {
+    method: 'POST',
+    body: JSON.stringify({ project_id: projectId }),
+  });
+}
+
+/** 查询管线完整状态（含各阶段分数、策略、检查点） */
+export function wfGetPipelineStatus(projectId: string): Promise<WfPipelineState> {
+  return apiFetch<WfPipelineState>(`/pipeline/status/${projectId}`);
+}
+
+/** 列出项目检查点 */
+export function wfGetPipelineCheckpoints(
+  projectId: string
+): Promise<{ checkpoints: WfCheckpoint[] }> {
+  return apiFetch<{ checkpoints: WfCheckpoint[] }>(`/pipeline/checkpoints/${projectId}`);
 }

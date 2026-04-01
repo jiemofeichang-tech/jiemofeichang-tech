@@ -8,7 +8,7 @@ const styles = [
   { name: "3D 渲染", color: "#6b64f8" },
   { name: "油画", color: "#c8956e" },
   { name: "像素风", color: "#5da" },
-  { name: "写实", color: "#fd69cf" },
+  { name: "写实", color: "#FFA500" },
 ];
 
 export default function LensSection() {
@@ -71,7 +71,7 @@ export default function LensSection() {
                   height: 80,
                   borderRadius: "50%",
                   background:
-                    "radial-gradient(circle, rgba(239,49,159,0.4) 0%, transparent 70%)",
+                    "radial-gradient(circle, rgba(255,140,0,0.4) 0%, transparent 70%)",
                 }}
               />
             </div>

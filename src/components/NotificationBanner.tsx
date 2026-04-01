@@ -12,7 +12,7 @@ export default function NotificationBanner() {
       style={{
         width: "100%",
         height: "var(--banner-height)",
-        backgroundColor: "rgba(61, 46, 10, 0.6)",
+        backgroundColor: "rgba(60, 40, 15, 0.8)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -22,7 +22,7 @@ export default function NotificationBanner() {
         position: "relative",
       }}
     >
-      <span style={{ fontSize: 14 }}>🎉</span>
+      <span style={{ fontSize: 14 }}>*</span>
       <span>
         邀请好友赚积分！鼠标悬浮右上角头像-点击邀请好友立刻参与，每周都有码~
       </span>

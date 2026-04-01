@@ -1,0 +1,203 @@
+# 提示词系统与风格库
+
+> 整合自 docs/06，定义提示词层级架构、合成逻辑和完整风格提示词库。
+
+---
+
+## 一、提示词层级架构
+
+```
+Layer 0: 全局质量锚定词（固定，用户不可见）
+  ↓ 注入到所有图像/视频生成请求
+Layer 1: 短片类型提示词（用户选择触发，Step 2）
+  ↓ 定义叙事节奏和结构
+Layer 2: 风格子类提示词（用户选择触发，Step 2）
+  ↓ 定义视觉风格
+Layer 3: 角色/场景专属提示词（AI 从剧本生成，Step 3）
+  ↓ 定义具体对象外观
+Layer 4: 分镜提示词（AI 从剧本生成，Step 3/5）
+  ↓ 定义每个镜头的画面
+Layer 5: 反面提示词（内部匹配，用户不可见）
+  ↓ 排除不良特征
+```
+
+---
+
+## 二、合成公式
+
+```
+最终图像提示词 = Layer 4 + Layer 3 + Layer 2 + Layer 1 + Layer 0
+最终反面提示词 = 风格反面词(Layer 5) + 通用反面词(Layer 5)
+```
+
+实际合成代码逻辑：
+
+```typescript
+const stylePrompt = [artPrompt, typePrompt, ratioPrompt, qualityAnchor].filter(Boolean).join(", ");
+const negativePrompt = [artNegative, globalNegative].filter(Boolean).join(", ");
+```
+
+### 提示词长度控制
+
+| 层级 | 推荐 token 上限 |
+|------|----------------|
+| Layer 0（质量锚定） | 30 tokens |
+| Layer 1（类型） | 30 tokens |
+| Layer 2（风格） | 60 tokens |
+| Layer 3（角色/场景） | 80 tokens |
+| Layer 4（分镜） | 100 tokens |
+| Layer 5（反面） | 50 tokens |
+| **合计** | **≤ 350 tokens** |
+
+超出时自动截断优先级低的 Layer。
+
+---
+
+## 三、Layer 0 — 全局质量锚定词
+
+**正面**：
+```
+masterpiece quality, professional animation production,
+consistent art style throughout all shots,
+cinematic composition, professional color grading,
+high detail, sharp focus
+```
+
+**反面全局词**：
+```
+low quality, blurry, deformed, extra limbs, bad anatomy,
+watermark, text, logo, signature, cropped, worst quality,
+jpeg artifacts, duplicate, morbid, mutilated, out of frame,
+extra fingers, mutated hands, poorly drawn hands, poorly drawn face
+```
+
+---
+
+## 四、Layer 1 — 短片类型提示词
+
+| ID | 正面提示词 | 结构提示（中文，给 LLM） |
+|----|-----------|------------------------|
+| `drama` | `narrative structure, three-act story, emotional arc, dramatic tension, character-driven plot, cliffhanger ending` | 前3秒出钩子，每10秒一个爽点，结尾致命悬念 |
+| `music_video` | `music-driven pacing, visual rhythm sync, lyrical imagery, montage sequence, beat-matched cuts, dynamic transitions` | 配合音乐节拍切镜，副歌用最华丽画面 |
+| `comic_adapt` | `panel-to-motion, manga layout reference, speech bubble integration, page turn transition, dynamic panel zoom` | 保留漫画分格感，关键格放大动态化 |
+| `promo` | `product showcase, brand identity, call-to-action framing, clean composition, professional lighting, logo reveal` | 开头3秒抓眼球，中间展示卖点，结尾CTA |
+| `edu` | `educational clarity, diagram animation, step-by-step reveal, narrator-guided visual, infographic style` | 先抛问题，再逐步拆解，最后总结 |
+
+---
+
+## 五、Layer 2 — 风格子类提示词库
+
+> 以下为需补充到 `src/lib/styles-data.ts` 的 `prompt` 和 `negativePrompt` 字段，按大类组织。
+
+### 5.1 国风
+
+| 风格名 | prompt | negativePrompt |
+|--------|--------|---------------|
+| 3D国创 | `Chinese 3D donghua style, inspired by Mo Dao Zu Shi and Douluo Dalu, detailed costume embroidery, flowing hair and ribbon physics, jade-like skin rendering, traditional Chinese architecture, martial arts action choreography, fantasy special effects, volumetric lighting` | `2D flat, western cartoon, chibi, watercolor, sketch, low polygon, pixel art, anime eyes` |
+| 2D漫剧 | `Chinese 2D animation style, clean line art, vibrant flat colors, dynamic action poses, traditional Chinese costume design, dramatic ink splash effects, bold outlines` | `3D render, photorealistic, western style, chibi, pastel colors, rough sketch` |
+| 国风水墨 | `Chinese ink wash painting style, sumi-e technique, flowing brushstrokes, monochromatic with subtle color accents, traditional rice paper texture, negative space composition, misty mountain landscapes, calligraphic elements` | `3D render, neon colors, modern digital, cartoon, anime, photorealistic, bright saturated colors` |
+| 恐怖悬疑 | `dark atmospheric Chinese horror style, eerie shadows, desaturated cold tones, traditional Chinese ghost story aesthetic, dim lantern lighting, fog and mist, ancient ruins, paper talisman details` | `bright colors, cheerful, cute, cartoon, warm tones, modern setting` |
+
+### 5.2 IP风格
+
+| 风格名 | prompt | negativePrompt |
+|--------|--------|---------------|
+| 吉卜力 | `Studio Ghibli style, soft watercolor textures, warm natural lighting, hand-painted backgrounds, gentle color palette, nostalgic atmosphere, Miyazaki-inspired character design with round faces and expressive eyes, detailed environmental storytelling, lush nature` | `3D render, photorealistic, dark gothic, neon colors, pixel art, harsh shadows, modern digital, sharp edges` |
+| JoJo | `JoJo's Bizarre Adventure style, dramatic muscle anatomy, bold fashion design, intense color contrasts, menacing character poses, halftone shading, onomatopoeia effects, flamboyant art deco elements` | `soft, cute, pastel, chibi, watercolor, realistic proportions, muted colors` |
+| 木叶村 | `Naruto anime style, dynamic ninja action poses, elemental jutsu effects, bold outlines with cel shading, vibrant orange and blue color scheme, speed lines, chakra aura effects` | `realistic, 3D, western cartoon, soft watercolor, pastel, horror` |
+| 草帽团 | `One Piece manga style, exaggerated body proportions, dynamic action shots, bold ink lines, sea adventure atmosphere, vibrant saturated colors, rubber-like stretching effects` | `realistic proportions, 3D render, dark horror, muted colors, minimal detail` |
+| 尸魂界-死神 | `Bleach anime style, sharp angular character designs, black and white contrast with accent colors, katana sword effects, spiritual pressure aura, dramatic speed lines, dark atmospheric backgrounds` | `cute, chibi, pastel, soft, watercolor, bright cheerful` |
+| 辛普森 | `The Simpsons cartoon style, yellow skin tone, overbite character design, bold black outlines, flat bright colors, exaggerated expressions, suburban American setting` | `anime, 3D, realistic, dark, horror, watercolor, detailed shading` |
+| 莱卡定格动画 | `Laika stop-motion animation style, visible puppet texture, handcrafted miniature sets, dramatic lighting with long shadows, Tim Burton-esque character proportions, gothic whimsy aesthetic` | `2D flat, anime, photorealistic, digital painting, smooth skin, bright saturated` |
+| 美式喜剧 | `Pixar-Disney 3D comedy style, exaggerated squash and stretch, warm key lighting, appealing character proportions, expressive eyes, subsurface skin scattering, colorful environments` | `2D flat, anime, dark horror, realistic, watercolor, sketch, muted colors` |
+| 方块世界 | `Minecraft voxel art style, blocky cubic geometry, pixel textures on 3D surfaces, bright primary colors, simple geometric characters, retro gaming aesthetic` | `smooth curves, realistic, anime, watercolor, detailed face, high resolution textures` |
+| 辛逝季-芙莉莲 | `Frieren anime style, soft pastel colors, delicate character designs, serene fantasy landscapes, gentle lighting, melancholic atmosphere, detailed magical effects, flowing robes and capes` | `dark horror, neon, 3D render, chibi, bold outlines, harsh contrast` |
+| 名侦探阿楠 | `Detective Conan anime style, clean line art, mystery thriller atmosphere, urban Japanese setting, blue-tinted night scenes, dramatic deductive revelation shots` | `fantasy, sci-fi, horror, chibi, watercolor, 3D, western style` |
+| 锈湖 | `Rusty Lake game art style, surreal dreamlike atmosphere, muted desaturated palette, eerie calm, hand-drawn 2D with hidden symbolism, avant-garde composition, psychological horror undertone` | `bright cheerful, 3D, anime, cute, cartoon, high saturation` |
+| 复古掌机 | `retro handheld game style, Game Boy Color palette, limited pixel art, 8-bit character sprites, green-tinted monochrome option, simple geometric shapes, nostalgic gaming aesthetic` | `high resolution, 3D, realistic, anime, watercolor, modern` |
+| 乐高 | `LEGO minifigure style, plastic brick texture, bright primary colors, cylindrical heads with printed faces, stud-covered surfaces, toy photography lighting, miniature diorama sets` | `realistic human, anime, 2D flat, watercolor, organic textures, horror` |
+| 蜡笔小新 | `Crayon Shin-chan style, thick crayon-like outlines, simple round character designs, flat bright colors, comedic expressions, childlike drawing aesthetic, everyday suburban Japanese setting` | `3D, realistic, dark, horror, detailed anatomy, photorealistic` |
+| 动森 | `Animal Crossing style, rounded cute character proportions, pastel color palette, cozy island atmosphere, simple dot eyes, soft lighting, cheerful tropical setting, craft texture feel` | `realistic, dark, horror, anime eyes, detailed anatomy, harsh shadows` |
+| 比奇堡 | `SpongeBob SquarePants style, underwater ocean setting, bubble effects, exaggerated stretchy character designs, bright neon-like colors, wild take expressions, surreal humor aesthetic` | `realistic, 3D render, dark, muted, anime, watercolor, horror` |
+| 史努比 | `Peanuts/Snoopy comic strip style, simple clean line drawings, minimal detail, round heads, dot eyes, zigzag patterns, newspaper comic aesthetic, limited flat colors` | `3D, realistic, anime, detailed, dark, horror, complex shading` |
+| 龙族传说 | `Dragon Quest fantasy style, Akira Toriyama-inspired character design, bright heroic colors, medieval fantasy setting, slime monsters, cel shaded, adventure atmosphere` | `dark horror, realistic, muted colors, modern setting, abstract` |
+
+### 5.3 日系风格
+
+| 风格名 | prompt | negativePrompt |
+|--------|--------|---------------|
+| 三渲二 | `anime cel-shaded 3D style, toon shading on 3D models, bold outlines, flat color areas with subtle 3D depth, Japanese anime character proportions, dramatic lighting` | `photorealistic, pure 2D flat, watercolor, sketch, western cartoon` |
+| 藤本树 | `Tatsuki Fujimoto manga style, gritty raw line work, unsettling atmosphere, chaotic panel layouts, dark humor undertone, blood splatter effects, intense close-up expressions, deconstructed narrative` | `cute, soft, pastel, clean, cheerful, 3D, bright colors` |
+| 赛璐璐 | `classic 90s anime cel animation style, bold outlines, flat color fills, limited color palette, dramatic action poses, speed lines, impact frames, vintage anime grain` | `3D, photorealistic, watercolor, soft edges, modern digital painting, oil painting` |
+| 油画釉光 | `anime oil painting glaze style, rich impasto texture visible through anime aesthetic, luminous glazing technique, warm amber undertones, Renaissance-inspired lighting on anime characters` | `flat colors, pixel art, clean digital, 3D render, sketch, minimalist` |
+| 低饱和平涂 | `low saturation flat color anime style, muted pastel tones, clean line art, minimal shading, understated elegance, quiet atmospheric mood, delicate character expressions` | `bright saturated, neon, high contrast, 3D, horror, dark` |
+| 空灵哥特 | `ethereal gothic anime style, pale ghostly figures, dark flowing garments, moonlit atmosphere, stained glass color accents, Victorian architecture, mysterious fog, ornate details` | `bright cheerful, cartoon, cute chibi, modern setting, warm colors` |
+| 80s年代 | `1980s retro anime style, VHS filter grain, neon pink and cyan palette, big hair and shoulder pads, city pop aesthetic, sunset gradient skies, retro-futuristic elements` | `modern clean, 3D, minimalist, dark horror, medieval, fantasy` |
+| 吊带袜女孩 | `Panty and Stocking art style, sharp angular designs, bold pop art colors, thick outlines, American cartoon meets Japanese anime hybrid, wild exaggerated expressions, action effects` | `soft, realistic, 3D, muted, watercolor, traditional, cute chibi` |
+| 复古梦幻赛璐璐 | `vintage dreamy cel animation, 70s-80s anime aesthetic, soft lens flare, warm nostalgic color grading, gentle character designs, pastel highlights, film grain overlay` | `modern digital, 3D, sharp, high contrast, dark, neon, pixel art` |
+| 日式少女漫 | `shoujo manga anime style, sparkle and flower petal effects, soft pastel colors, delicate thin line art, romantic dreamy atmosphere, bishounen character designs, heart-shaped bokeh` | `dark, horror, action, bold thick lines, 3D, muted, gritty` |
+
+### 5.4 插画风格（部分代表）
+
+| 风格名 | prompt | negativePrompt |
+|--------|--------|---------------|
+| 都市言情 | `Korean webtoon romance style, soft digital painting, warm indoor lighting, fashionable modern clothing, gentle blush on characters, cozy urban setting, subtle gradient shading` | `fantasy, sci-fi, action, dark, anime eyes, 3D, pixel, sketch` |
+| 女频漫画 | `Korean manhwa female-oriented style, elegant character designs, flowing hair details, romantic soft lighting, fashionable outfits, delicate facial features, emotional eye close-ups` | `action, horror, chibi, rough sketch, 3D, pixel art, dark` |
+| 蚀刻光影 | `etching and engraving art style, fine cross-hatching lines, dramatic chiaroscuro lighting, vintage book illustration aesthetic, copper plate texture, monochromatic with sepia tones` | `bright colors, 3D, anime, flat, modern, cartoon, neon` |
+| 温馨彩绘 | `warm painted illustration style, soft brushstrokes, golden hour warm lighting, cozy heartwarming atmosphere, gentle pastel palette, storybook quality, nurturing mood` | `dark, horror, cold, neon, 3D, sharp lines, pixel art` |
+
+### 5.5 可爱Q版
+
+| 风格名 | prompt | negativePrompt |
+|--------|--------|---------------|
+| 治愈Q萌 | `chibi cute healing style, oversized head proportions, round simple eyes, soft pastel colors, gentle smiling expressions, plush toy aesthetic, warm fuzzy feeling` | `realistic, dark, horror, detailed anatomy, action, sharp, gothic` |
+| 粘土玩具 | `claymation toy style, visible fingerprint textures, warm studio lighting, miniature diorama set, slightly rough surface, bright primary colors, handcrafted feel` | `2D, anime, photorealistic, digital painting, smooth, dark` |
+| Q版3D | `3D chibi style, oversized cute head, small body proportions, smooth plastic-like material, bright candy colors, simple facial features, toy figurine aesthetic` | `realistic proportions, 2D flat, watercolor, dark, horror, sketch` |
+| 像素 | `pixel art style, retro 16-bit game aesthetic, limited color palette, square grid visible, chiptune era characters, nostalgic gaming feel` | `realistic, 3D smooth, anime, watercolor, high resolution, modern` |
+| 火柴人 | `stick figure animation style, minimal line drawing, white background, simple geometric body, exaggerated physical comedy, flash animation aesthetic` | `detailed, realistic, 3D, anime, complex, shading, texture` |
+
+### 5.6 欧美风格
+
+| 风格名 | prompt | negativePrompt |
+|--------|--------|---------------|
+| 美式3D | `Pixar-Disney 3D animation, subsurface scattering, squash and stretch principles, warm key light with cool rim, appealing proportions, detailed texture work, expressive eyes` | `2D flat, anime, sketch, watercolor, photorealistic, dark horror, pixel` |
+| 哥特都市涂鸦 | `urban graffiti gothic style, spray paint texture, dark city walls, street art aesthetic, bold tag lettering, neon accents on dark backgrounds, rebellious punk atmosphere` | `cute, soft, pastel, anime, clean, 3D smooth, traditional` |
+| 文艺复兴古典画 | `Renaissance classical painting style, oil on canvas texture, dramatic Caravaggio-like lighting, anatomically detailed figures, rich deep colors, religious iconography composition` | `anime, cartoon, modern, pixel, flat colors, bright neon, chibi` |
+
+### 5.7 韩系
+
+| 风格名 | prompt | negativePrompt |
+|--------|--------|---------------|
+| 韩系都市 | `Korean urban webtoon style, clean digital illustration, trendy fashion, modern city backgrounds, soft ambient lighting, handsome and beautiful character designs, subtle color grading` | `fantasy, medieval, horror, chibi, pixel, rough sketch, 3D cartoon` |
+| 空灵现实 | `ethereal realism Korean style, soft focus dreamy atmosphere, muted desaturated tones, natural gentle lighting, melancholic beauty, cinematic film grain, everyday life poetry` | `bright cartoon, anime, 3D, neon, bold colors, action, fantasy` |
+| 潮流都市 | `trendy urban Korean illustration, bold graphic design elements, street fashion aesthetic, gradient color blocks, modern typography overlay, Instagram-worthy composition` | `traditional, fantasy, horror, chibi, pixel, watercolor, old-fashioned` |
+
+### 5.8 立体风格
+
+| 风格名 | prompt | negativePrompt |
+|--------|--------|---------------|
+| 毛绒玩具质感 | `plush toy texture style, soft fuzzy fabric material, stitching details visible, button eyes, stuffed animal proportions, warm cozy lighting, craft room setting` | `realistic, anime, 2D flat, smooth skin, horror, dark, sharp` |
+
+---
+
+## 六、比例构图提示词
+
+| 比例 | 提示词 |
+|------|--------|
+| `16:9` | `widescreen cinematic composition, horizontal storytelling, rule of thirds, cinematic letterbox framing, panoramic view` |
+| `9:16` | `vertical composition, portrait framing, mobile-optimized layout, subject centered or slightly above center, close framing for emotional impact, short-form video optimized` |
+| `1:1` | `square composition, centered subject, balanced symmetry, social media optimized, bold graphic framing, Instagram-ready` |
+
+---
+
+## 七、风格冲突检测
+
+系统自动检测剧本内容与选择风格之间的冲突，提供非阻断警告：
+
+| 剧本关键词 | 冲突风格 |
+|-----------|---------|
+| 赛博朋克/科幻/未来 | 国风水墨/古风工笔/水墨 |
+| 恐怖/暗黑/血腥 | 治愈Q萌/可爱/温馨彩绘 |
+| 古代/古风/仙侠 | 像素/复古掌机/方块世界 |
+
+示例提示：「您的剧本包含「赛博朋克」相关内容，但选择了「国风水墨」风格。建议考虑是否更换风格以获得更好效果。」

@@ -1,0 +1,155 @@
+{
+  "timestamp": "2026-03-28T20:19:03.265Z",
+  "summary": {
+    "total": 17,
+    "critical": 0,
+    "high": 3,
+    "medium": 9,
+    "low": 5
+  },
+  "workingButtons": [
+    "语言切换",
+    "常见问题",
+    "我的资产(头部)",
+    "侧边栏: 首页",
+    "侧边栏: 我的项目",
+    "侧边栏: 我的资产",
+    "侧边栏: AI漫剧工作流",
+    "Workflow: 剧本",
+    "Workflow: 风格",
+    "Workflow: 角色",
+    "Workflow: 分镜",
+    "Workflow: 视频",
+    "Workflow: 后期"
+  ],
+  "brokenButtons": [
+    {
+      "description": "头部图标 x=1448",
+      "reason": "无响应"
+    },
+    {
+      "description": "头部图标 x=1488",
+      "reason": "无响应"
+    },
+    {
+      "description": "头部图标 x=1848",
+      "reason": "无响应"
+    },
+    {
+      "description": "侧边栏: 回收站",
+      "reason": "未找到"
+    },
+    {
+      "description": "上传(+)",
+      "reason": "弹窗未打开"
+    },
+    {
+      "description": "发送按钮",
+      "reason": "未找到"
+    },
+    {
+      "description": "Workflow: 发送",
+      "reason": "禁用"
+    }
+  ],
+  "issues": [
+    {
+      "category": "登录页",
+      "description": "空用户名/密码提交无前端校验提示（直接发请求）",
+      "severity": "MEDIUM"
+    },
+    {
+      "category": "登录页",
+      "description": "注册成功后无 toast/提示信息确认",
+      "severity": "LOW"
+    },
+    {
+      "category": "头部图标",
+      "description": "x=1448 点击后无弹窗无导航",
+      "severity": "MEDIUM"
+    },
+    {
+      "category": "头部图标",
+      "description": "x=1488 点击后无弹窗无导航",
+      "severity": "MEDIUM"
+    },
+    {
+      "category": "头部图标",
+      "description": "x=1848 点击后无弹窗无导航",
+      "severity": "MEDIUM"
+    },
+    {
+      "category": "侧边栏",
+      "description": "\"回收站\" 未找到",
+      "severity": "HIGH"
+    },
+    {
+      "category": "上传(+)",
+      "description": "弹窗未打开",
+      "severity": "HIGH"
+    },
+    {
+      "category": "模式切换",
+      "description": "托管模式按钮未找到",
+      "severity": "MEDIUM"
+    },
+    {
+      "category": "模式切换",
+      "description": "对话模式按钮未找到",
+      "severity": "MEDIUM"
+    },
+    {
+      "category": "发送按钮",
+      "description": "未找到",
+      "severity": "HIGH"
+    },
+    {
+      "category": "推荐卡片",
+      "description": "\"自由生图/生视频\" 未找到",
+      "severity": "LOW"
+    },
+    {
+      "category": "推荐卡片",
+      "description": "\"剧情故事短片\" 未找到",
+      "severity": "LOW"
+    },
+    {
+      "category": "推荐卡片",
+      "description": "\"音乐概念短片\" 未找到",
+      "severity": "LOW"
+    },
+    {
+      "category": "推荐卡片",
+      "description": "\"衍生品设计\" 未找到",
+      "severity": "LOW"
+    },
+    {
+      "category": "控制台",
+      "description": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "severity": "MEDIUM"
+    },
+    {
+      "category": "网络",
+      "description": "https://fonts.gstatic.com/s/notosanssc/v40/k3kXo84MPvpLmixcA63oeALhLOCT-xWNm8Hqd37g1OkDRZe7lR4sg1IzSy-MNbE9VH8V.119.woff2 → net::ERR_ABORTED",
+      "severity": "MEDIUM"
+    },
+    {
+      "category": "网络",
+      "description": "https://fonts.gstatic.com/s/notosanssc/v40/k3kXo84MPvpLmixcA63oeALhLOCT-xWNm8Hqd37g1OkDRZe7lR4sg1IzSy-MNbE9VH8V.107.woff2 → net::ERR_ABORTED",
+      "severity": "MEDIUM"
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "networkErrors": [
+    {
+      "url": "https://fonts.gstatic.com/s/notosanssc/v40/k3kXo84MPvpLmixcA63oeALhLOCT-xWNm8Hqd37g1OkDRZe7lR4sg1IzSy-MNbE9VH8V.119.woff2",
+      "err": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/notosanssc/v40/k3kXo84MPvpLmixcA63oeALhLOCT-xWNm8Hqd37g1OkDRZe7lR4sg1IzSy-MNbE9VH8V.107.woff2",
+      "err": "net::ERR_ABORTED"
+    }
+  ]
+}

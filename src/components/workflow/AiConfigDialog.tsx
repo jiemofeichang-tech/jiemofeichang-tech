@@ -18,7 +18,7 @@ export default function AiConfigDialog({ open, onClose }: AiConfigDialogProps) {
   useEffect(() => {
     if (!open) return;
     fetchConfig().then((cfg) => {
-      const ai = (cfg as Record<string, unknown>).aiConfig as Record<string, string> | undefined;
+      const ai = ((cfg as unknown) as Record<string, unknown>).aiConfig as Record<string, string> | undefined;
       if (ai) {
         setChatBase(ai.chatBase || "");
         setImageBase(ai.imageBase || "");
@@ -105,7 +105,7 @@ export default function AiConfigDialog({ open, onClose }: AiConfigDialogProps) {
           <input
             value={chatModel}
             onChange={(e) => setChatModel(e.target.value)}
-            placeholder="claude-opus-4-6"
+            placeholder="gemini-2.5-pro"
             style={{
               width: "100%",
               padding: "8px 12px",
@@ -145,7 +145,7 @@ export default function AiConfigDialog({ open, onClose }: AiConfigDialogProps) {
           <input
             value={imageModel}
             onChange={(e) => setImageModel(e.target.value)}
-            placeholder="nano-banana-2"
+            placeholder="imagen-4.0-generate-001"
             style={{
               width: "100%",
               padding: "8px 12px",

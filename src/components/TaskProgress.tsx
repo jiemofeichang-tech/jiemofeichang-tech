@@ -66,7 +66,7 @@ export default function TaskProgress({ task, onTaskUpdated }: TaskProgressProps)
     <div style={{
       width: "100%", maxWidth: 680, margin: "16px auto 0",
       backgroundColor: "var(--bg-card)", border: "1px solid var(--border)",
-      borderRadius: 12, overflow: "hidden",
+      borderRadius: 4, overflow: "hidden",
     }}>
       {/* Header */}
       <div style={{

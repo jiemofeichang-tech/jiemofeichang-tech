@@ -9,8 +9,8 @@
     },
     {
       "name": "frontend",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": ["/c", "cd /d E:\\AI工作流\\oii前端\\oiioii-clone && npm run dev -- --port 3001"],
+      "runtimeExecutable": "npm.cmd",
+      "runtimeArgs": ["run", "dev"],
       "port": 3001
     }
   ]

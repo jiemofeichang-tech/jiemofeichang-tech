@@ -104,6 +104,17 @@ http://127.0.0.1:8787
 6. 等待自动轮询
 7. 成功后在右侧即时预览和下方作品库中直接查看本地视频
 
+## 文档导航
+
+| 分类 | 目录 | 说明 |
+|------|------|------|
+| 开发文档 | [`docs/development/`](docs/development/) | 架构、API 规范、前后端指南、工作流、提示词系统、编码规范 |
+| 测试文档 | [`docs/testing/`](docs/testing/) | 测试计划、测试结果、测试编写指南、Mock 策略 |
+| 变更日志 | [`docs/changelog/`](docs/changelog/) | 版本变更记录、问题修复记录 |
+| 部署文档 | [`docs/deployment/`](docs/deployment/) | 本地搭建、环境变量、生产部署 |
+| 常见问题 | [`docs/faq/`](docs/faq/) | 启动问题、网络问题、开发问题 |
+| 设计归档 | [`docs/design/`](docs/design/) | 原始设计文档（历史参考） |
+
 ## 已验证
 
 这套控制台已经完成过真实回归：

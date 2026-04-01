@@ -135,3 +135,71 @@ export interface WfWorkflowStatus {
     video: WfStepStatus;
   };
 }
+
+// ---------------------------------------------------------------------------
+// Pipeline types (Harness 三 Agent 架构)
+// ---------------------------------------------------------------------------
+
+/** 单个阶段的状态 */
+export type PipelineStageStatus =
+  | 'pending'
+  | 'running'
+  | 'evaluating'
+  | 'passed'
+  | 'failed';
+
+/** REFINE/PIVOT 策略 (来自 Harness 的分数趋势决策) */
+export type PipelineStrategy = 'REFINE' | 'PIVOT' | null;
+
+export interface WfPipelineStage {
+  name: string;
+  status: PipelineStageStatus;
+  attempt: number;
+  max_attempts: number;
+  score_history: number[];
+  strategy: PipelineStrategy;
+  artifact_id: string | null;
+  error: string | null;
+}
+
+/** 管线整体状态 */
+export type PipelineStatus = 'running' | 'paused' | 'completed' | 'failed';
+
+export interface WfPipelineState {
+  pipeline_id: string;
+  project_id: string;
+  status: PipelineStatus;
+  current_stage: string;
+  stages: Record<string, WfPipelineStage>;
+  params: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 检查点摘要 */
+export interface WfCheckpoint {
+  checkpoint_id: string;
+  reason: string;
+  created_at: string;
+  current_stage: string;
+  status: string;
+}
+
+/** 评估标准评分 */
+export interface WfCriterionScore {
+  name: string;
+  score: number;
+  weight: number;
+  reason: string;
+}
+
+/** 阶段评估结果 (对应 Harness feedback.md) */
+export interface WfEvalResult {
+  stage: string;
+  attempt: number;
+  criterion_scores: WfCriterionScore[];
+  average: number;
+  issues: string[];
+  recommendation: 'PASS' | 'REFINE' | 'PIVOT';
+  detail: string;
+}

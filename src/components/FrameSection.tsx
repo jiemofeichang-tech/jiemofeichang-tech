@@ -6,7 +6,7 @@ const steps = [
     title: "描述你的创意",
     desc: "通过文字描述或上传参考图输入你的创意概念",
     icon: (
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ef319f" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FF8C00" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       </svg>
     ),

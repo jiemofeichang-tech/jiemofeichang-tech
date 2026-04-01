@@ -44,7 +44,7 @@ export default function HeroSection() {
           width: 700,
           height: 500,
           background:
-            "radial-gradient(ellipse, rgba(239,49,159,0.12) 0%, rgba(182,139,255,0.06) 40%, transparent 70%)",
+            "radial-gradient(ellipse, rgba(255,140,0,0.12) 0%, rgba(182,139,255,0.06) 40%, transparent 70%)",
           pointerEvents: "none",
         }}
       />

@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { queryTask, saveToLibrary, deleteTask, toggleFavorite, type TaskRecord } from "@/lib/api";
+import { useWorkflowStore } from "@/lib/store";
+import CreateProjectDialog from "@/components/workflow/CreateProjectDialog";
+import VideoLightbox from "@/components/ui/VideoLightbox";
 
 interface ProjectsPageProps {
   history: TaskRecord[];
@@ -11,6 +15,15 @@ interface ProjectsPageProps {
 export default function ProjectsPage({ history, onRefresh }: ProjectsPageProps) {
   const [tab, setTab] = useState<"all" | "favorites">("all");
   const [search, setSearch] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const router = useRouter();
+  const { createProject } = useWorkflowStore();
+
+  const handleCreate = async (title: string, rawInput: string, referenceImages: string[]) => {
+    const projectId = await createProject(title || "新漫剧项目", rawInput, referenceImages.length > 0 ? referenceImages : undefined);
+    setShowCreate(false);
+    router.push(`/workflow/${projectId}`);
+  };
 
   const filtered = history.filter((t) => {
     const matchSearch = (t.title || t.id).toLowerCase().includes(search.toLowerCase());
@@ -60,7 +73,7 @@ export default function ProjectsPage({ history, onRefresh }: ProjectsPageProps) 
         gap: 20,
       }}>
         {/* New Project Card */}
-        <NewProjectCard />
+        <NewProjectCard onClick={() => setShowCreate(true)} />
 
         {filtered.length === 0 && history.length === 0 ? null : (
           filtered.map((task) => (
@@ -74,13 +87,15 @@ export default function ProjectsPage({ history, onRefresh }: ProjectsPageProps) 
           暂无任务记录，请先在首页创建任务
         </div>
       )}
+
+      <CreateProjectDialog open={showCreate} onClose={() => setShowCreate(false)} onCreate={handleCreate} />
     </div>
   );
 }
 
-function NewProjectCard() {
+function NewProjectCard({ onClick }: { onClick: () => void }) {
   return (
-    <div style={{ cursor: "pointer" }}>
+    <div style={{ cursor: "pointer" }} onClick={onClick}>
       <div style={{
         width: "100%", aspectRatio: "4/3", borderRadius: 12,
         border: "1px dashed rgba(255,255,255,0.15)",
@@ -105,6 +120,7 @@ function NewProjectCard() {
 
 function ProjectCard({ task, onRefresh }: { task: TaskRecord; onRefresh: () => void }) {
   const [hovered, setHovered] = useState(false);
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const status = task.status || "idle";
   const hasVideo = task.status === "succeeded" && (task.content?.video_url || task._proxy?.videoUrls?.[0]);
 
@@ -131,6 +147,12 @@ function ProjectCard({ task, onRefresh }: { task: TaskRecord; onRefresh: () => v
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onClick={() => {
+        if (hasVideo) {
+          const videoUrl = task.content?.video_url || task._proxy?.videoUrls?.[0];
+          if (videoUrl) setPreviewSrc(videoUrl);
+        }
+      }}
       style={{ cursor: "pointer", transition: "all 0.2s", transform: hovered ? "translateY(-2px)" : "none" }}
     >
       {/* Thumbnail */}
@@ -145,7 +167,7 @@ function ProjectCard({ task, onRefresh }: { task: TaskRecord; onRefresh: () => v
         {hasVideo ? (
           <svg width="32" height="32" viewBox="0 0 24 24" fill="rgba(255,255,255,0.5)"><polygon points="5 3 19 12 5 21 5 3"/></svg>
         ) : (
-          <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.12)", fontFamily: "'Poppins', sans-serif" }}>OiiOii</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.12)", fontFamily: "'Noto Sans SC', sans-serif" }}>聚给力</span>
         )}
 
         {/* Action buttons on hover */}
@@ -182,6 +204,7 @@ function ProjectCard({ task, onRefresh }: { task: TaskRecord; onRefresh: () => v
           {task.created_at || task.tracked_at}
         </p>
       </div>
+      {previewSrc && <VideoLightbox src={previewSrc} onClose={() => setPreviewSrc(null)} />}
     </div>
   );
 }

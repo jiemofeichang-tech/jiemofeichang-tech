@@ -1,11 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
-import NotificationBanner from "@/components/NotificationBanner";
 import MainInput from "@/components/MainInput";
-import GenerationPanel from "@/components/GenerationPanel";
 import TaskProgress from "@/components/TaskProgress";
 import QuickTags from "@/components/QuickTags";
 import ProjectsRow from "@/components/ProjectsRow";
@@ -14,25 +12,30 @@ import HighlightsSection from "@/components/HighlightsSection";
 import DiscoverSection from "@/components/DiscoverSection";
 import Footer from "@/components/Footer";
 import ProjectsPage from "@/components/ProjectsPage";
-import CommunityPage from "@/components/CommunityPage";
 import TrashPage from "@/components/TrashPage";
-import LibrarySection from "@/components/LibrarySection";
+import AssetPage from "@/components/assets/AssetPage";
 import AuthGuard from "@/components/AuthGuard";
 import {
-  fetchConfig, fetchHistory, fetchLibrary, authLogout,
-  type ServerConfig, type TaskRecord, type AssetRecord, type GenerationParams, type AuthUser,
+  authLogout,
+  fetchConfig,
+  fetchHistory,
+  type AuthUser,
+  type GenerationParams,
+  type ServerConfig,
+  type TaskRecord,
 } from "@/lib/api";
+
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState("home");
   const [prompt, setPrompt] = useState("");
+  const [activeStoryType, setActiveStoryType] = useState<string | undefined>();
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const [currentTask, setCurrentTask] = useState<TaskRecord | null>(null);
   const [history, setHistory] = useState<TaskRecord[]>([]);
-  const [library, setLibrary] = useState<AssetRecord[]>([]);
   const [genParams, setGenParams] = useState<GenerationParams>({
     mode: "text",
-    model: "doubao-seedance-2.0",
+    model: "veo-2",
     resolution: "720p",
     ratio: "16:9",
     duration: -1,
@@ -41,19 +44,14 @@ export default function Home() {
     generateAudio: false,
   });
 
-  useEffect(() => {
-    fetchConfig().then(setConfig).catch(() => {});
-    refreshHistory();
-    refreshLibrary();
-  }, []);
-
   const refreshHistory = useCallback(() => {
     fetchHistory().then((res) => setHistory(res.tasks)).catch(() => {});
   }, []);
 
-  const refreshLibrary = useCallback(() => {
-    fetchLibrary().then((res) => setLibrary(res.assets)).catch(() => {});
-  }, []);
+  useEffect(() => {
+    fetchConfig().then(setConfig).catch(() => {});
+    refreshHistory();
+  }, [refreshHistory]);
 
   const handleTaskCreated = useCallback((task: TaskRecord) => {
     setCurrentTask(task);
@@ -64,9 +62,8 @@ export default function Home() {
     setCurrentTask(task);
     if (task.status === "succeeded" || task.local_asset) {
       refreshHistory();
-      refreshLibrary();
     }
-  }, [refreshHistory, refreshLibrary]);
+  }, [refreshHistory]);
 
   const handleConfigUpdated = useCallback(() => {
     fetchConfig().then(setConfig).catch(() => {});
@@ -80,52 +77,71 @@ export default function Home() {
   return (
     <AuthGuard>
       {(user: AuthUser) => (
-        <div style={{ minHeight: "100vh", backgroundColor: "var(--bg)" }}>
+        <div className="home-cinema-shell" data-home-shell="cinema" style={{ minHeight: "100vh" }}>
           <Header config={config} onConfigUpdated={handleConfigUpdated} user={user} onLogout={handleLogout} />
           <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
 
-          <main style={{ paddingTop: "var(--header-height)" }}>
+          <main className="home-main">
             {activeTab === "home" && (
-              <>
-                <NotificationBanner />
+              <div key="home" className="tab-enter">
                 {!config?.hasApiKey && (
-                  <div style={{
-                    margin: "12px auto 0", padding: "10px 16px", borderRadius: 8, maxWidth: 800,
-                    backgroundColor: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)",
-                    color: "#ef4444", fontSize: 13, textAlign: "center",
-                  }}>
-                    尚未配置 API Key，请点击右上角头像 → 设置 来配置后端连接。
+                  <div className="home-banner">
+                    后端 API Key 还未配置。点击右上角头像进入设置后，就能把首页直接接到你的生成服务。
                   </div>
                 )}
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "32px 20px 0" }}>
-                  <MainInput
-                    prompt={prompt}
-                    setPrompt={setPrompt}
-                    generationParams={genParams}
-                    onTaskCreated={handleTaskCreated}
-                  />
-                  <QuickTags onSelect={(text) => setPrompt(text)} />
-                </div>
-                <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 20px" }}>
-                  <TaskProgress task={currentTask} onTaskUpdated={handleTaskUpdated} />
-                </div>
-                <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 20px" }}>
-                  <WorkflowProjects />
-                </div>
-                <ProjectsRow history={history} />
+
+                <section className="home-hero">
+                  <div>
+                      <div className="home-input-shell">
+                        <div style={{ marginBottom: 18 }}>
+                          <div style={{ fontSize: 22, fontWeight: 700 }}>开始创作</div>
+                        </div>
+
+                        <MainInput
+                          prompt={prompt}
+                          setPrompt={setPrompt}
+                          generationParams={genParams}
+                          onTaskCreated={handleTaskCreated}
+                          storyType={activeStoryType}
+                          onClearStoryType={() => setActiveStoryType(undefined)}
+                        />
+
+                        <div style={{ marginTop: 18 }}>
+                          <QuickTags
+                            onSelect={(sel) => {
+                              setPrompt(sel.prompt);
+                              setActiveStoryType(sel.storyType);
+                              if (sel.params) {
+                                setGenParams((prev) => ({ ...prev, ...sel.params }));
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                  </div>
+                </section>
+
+                {currentTask && (
+                  <div className="home-task-shell">
+                    <TaskProgress task={currentTask} onTaskUpdated={handleTaskUpdated} />
+                  </div>
+                )}
+
+                <WorkflowProjects />
+                <ProjectsRow history={history} onOpenProjects={() => setActiveTab("projects")} />
                 <HighlightsSection />
                 <DiscoverSection />
                 <Footer />
-              </>
+              </div>
             )}
 
             {activeTab === "projects" && (
-              <ProjectsPage history={history} onRefresh={refreshHistory} />
+              <div key="projects" className="tab-enter">
+                <ProjectsPage history={history} onRefresh={refreshHistory} />
+              </div>
             )}
-            {activeTab === "community" && (
-              <LibrarySection library={library} onRefresh={refreshLibrary} />
-            )}
-            {activeTab === "trash" && <TrashPage />}
+            {activeTab === "community" && <div key="community" className="tab-enter"><AssetPage /></div>}
+            {activeTab === "trash" && <div key="trash" className="tab-enter"><TrashPage /></div>}
           </main>
         </div>
       )}

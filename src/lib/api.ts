@@ -1,3 +1,9 @@
+import {
+  STORY_TYPE_PROMPTS,
+  QUALITY_ANCHOR_PROMPT,
+  ASPECT_RATIO_PROMPTS,
+} from "./prompt-system";
+
 export interface TaskRecord {
   id: string;
   model?: string;
@@ -174,7 +180,7 @@ export function authLogout() {
 
 export async function authMe(): Promise<{ ok: boolean; user?: AuthUser }> {
   try {
-    const res = await fetch("/api/auth/me");
+    const res = await fetch("/api/auth/me", { cache: "no-store" });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { ok: false };
     return data as { ok: boolean; user?: AuthUser };
@@ -226,7 +232,7 @@ export interface GenerationParams {
   taskReference?: string;
 }
 
-export function buildPayload(prompt: string, params: GenerationParams) {
+export function buildPayload(prompt: string, params: GenerationParams, storyType?: string) {
   const content: Record<string, unknown>[] = [];
 
   // Build enhanced prompt
@@ -238,11 +244,30 @@ export function buildPayload(prompt: string, params: GenerationParams) {
   if (camera && camera.value !== "auto" && camera.helper) extras.push(camera.helper);
   const speed = MOTION_SPEEDS.find((s) => s.value === params.motionSpeed);
   if (speed) extras.push(speed.helper);
-  if (["first_frame", "first_last_frame"].includes(params.mode) && params.firstFrame) extras.push("首帧请严格参考图片1。");
+  if (["first_frame", "first_last_frame"].includes(params.mode) && params.firstFrame) extras.push("首帧请严格参考图片1。视频全程必须保持与首帧完全一致的画风和角色造型，禁止将画风转为真人写实风格。");
   if (params.mode === "first_last_frame" && params.lastFrame) extras.push("尾帧请严格定格为尾帧参考图。");
   if (params.mode === "extend_video" && params.taskReference) extras.push("请在已有视频风格和动作基础上自然延长，不要突兀跳剪。");
 
-  const fullPrompt = [prompt, ...extras].filter(Boolean).join("\n");
+  // 注入故事类型专属提示词（Layer 1 + Layer 5 + Layer 0）
+  const systemParts: string[] = [];
+  if (storyType) {
+    const typeEntry = STORY_TYPE_PROMPTS[storyType];
+    if (typeEntry?.prompt) {
+      systemParts.push(typeEntry.prompt);
+    }
+  }
+  const ratioPrompt = ASPECT_RATIO_PROMPTS[params.ratio];
+  if (storyType && ratioPrompt) {
+    systemParts.push(ratioPrompt);
+  }
+  if (storyType) {
+    systemParts.push(QUALITY_ANCHOR_PROMPT);
+  }
+
+  // 合成最终 prompt：用户内容 + 模式指导 + 类型系统提示词
+  const userPrompt = [prompt, ...extras].filter(Boolean).join("\n");
+  const systemPrompt = systemParts.length > 0 ? `\n[Style: ${systemParts.join(", ")}]` : "";
+  const fullPrompt = userPrompt + systemPrompt;
   if (fullPrompt) content.push({ type: "text", text: fullPrompt });
 
   // Source image (image_to_video mode)
@@ -280,7 +305,7 @@ export function buildPayload(prompt: string, params: GenerationParams) {
   }
 
   return {
-    model: params.model || "doubao-seedance-2.0",
+    model: params.model || "veo-2",
     content,
     resolution: params.resolution,
     ratio: params.ratio,
@@ -324,6 +349,9 @@ export interface ScriptAnalysis {
     appearance: Record<string, string>;
     costume: Record<string, string>;
     three_view_prompts: { front: string; side: string; back: string };
+    /** 完整的角色视觉描述提示词（由 LLM 生成），用于图像生成 */
+    visual_prompt_template?: string;
+    appearance_description?: string;
     expression_prompts: Record<string, string>;
     voice_profile?: Record<string, string>;
   }[];
@@ -353,7 +381,12 @@ export interface ScriptAnalysis {
         action: string;
         camera_movement: string;
         duration: string;
+        optics?: string;
+        composition?: string;
         lighting_note?: string;
+        transition?: string;
+        /** AI 生成的完整英文图像提示词 */
+        visual_prompt?: string;
       }[];
       bgm_instruction?: Record<string, string>;
       sfx?: string[];
@@ -371,7 +404,9 @@ export interface WfCharacter {
   front_view: string | null;
   side_view: string | null;
   back_view: string | null;
-  expression_sheet: string | null;
+  expression_sheet: Record<string, string | null> | null;
+  /** 每张视图的审核状态: approved / pending / rejected */
+  view_status?: Record<string, "approved" | "pending" | "rejected">;
   status: "pending" | "generating" | "done";
 }
 
@@ -379,8 +414,41 @@ export interface WfScene {
   id: string;
   name: string;
   description: string;
+  six_view_prompts?: Record<string, string>;
+  lighting?: Record<string, string>;
   views: Record<string, string | null>;
+  /** 每张视图的审核状态 */
+  view_status?: Record<string, "approved" | "pending" | "rejected">;
   status: "pending" | "generating" | "done";
+}
+
+// =====================================================
+// 风格配置
+// =====================================================
+
+export interface StyleConfig {
+  /** 短片类型 ID: drama | music_video | comic_adapt | promo | edu */
+  story_type: string;
+  /** 风格大类名称 */
+  art_style_category: string;
+  /** 风格子类名称（如"吉卜力"） */
+  art_substyle: string;
+  /** 画面比例 */
+  aspect_ratio: "16:9" | "9:16" | "1:1";
+  /** 目标总时长（秒） */
+  duration_sec: number;
+  /** 对白语言 */
+  language: string;
+  /** 单镜头时长（秒） */
+  shot_duration_sec: number;
+  /** 合成后的总风格提示词（英文，注入到所有生成请求） */
+  compiled_style_prompt: string;
+  /** 合成后的反面提示词（英文） */
+  compiled_negative_prompt: string;
+  /** 是否被用户手动编辑过 */
+  prompt_manually_edited: boolean;
+  /** 编辑前的原始值（用于还原默认） */
+  prompt_edit_history: string[];
 }
 
 export interface WfShot {
@@ -393,12 +461,20 @@ export interface WfShot {
   shot_type: string;
   camera_movement: string;
   duration: number;
+  action?: string;
+  optics?: string;
+  composition?: string;
+  lighting_note?: string;
+  transition?: string;
+  visual_prompt?: string;
   dialogue?: string;
   emotion?: string;
   storyboard_image: string | null;
   video_task_id: string | null;
   video_url: string | null;
   video_local_path: string | null;
+  approved?: boolean;
+  video_approved?: boolean;
   status: "draft" | "storyboard" | "filming" | "done" | "failed";
 }
 
@@ -411,7 +487,7 @@ export interface WfEpisode {
 export interface WfProject {
   id: string;
   title: string;
-  status: "draft" | "scripting" | "designing" | "storyboarding" | "filming" | "post" | "done";
+  status: "draft" | "configured" | "scripting" | "script_parsed" | "designing" | "assets_locked" | "storyboarding" | "filming" | "compositing" | "compositing_failed" | "post" | "done";
   created_at: string;
   updated_at: string;
   script: {
@@ -422,12 +498,61 @@ export interface WfProject {
   characters: WfCharacter[];
   scenes: WfScene[];
   style_guide: Record<string, unknown> | null;
+  style_config: StyleConfig | null;
+  reference_images: string[];
   episodes: WfEpisode[];
   post_production: {
     subtitles_srt: string | null;
+    subtitles_srt_path?: string | null;
     final_output: string | null;
+    compose_config?: ComposeConfig;
+    compose_progress?: ComposeProgress;
+    last_error?: ComposeError | null;
   };
 }
+
+// ── Compose Types (Step 5 Phase C) ──
+
+export interface ComposeConfig {
+  include_subtitles: boolean;
+  subtitle_mode: "burn" | "external" | "off";
+  include_voiceover: boolean;
+  include_bgm: boolean;
+  bgm_source: "auto" | "custom";
+  bgm_path?: string;
+  bgm_volume?: number;
+  output_quality: "720p" | "1080p" | "4k";
+  transition_style: "dissolve" | "fade" | "cut" | "none";
+  resume_from_stage?: string | null;
+}
+
+export interface ComposeProgress {
+  current_stage: string | null;
+  stages_completed: string[];
+  stages_total: number;
+  percent: number;
+}
+
+export interface ComposeError {
+  code?: string;
+  message: string;
+  detail?: string;
+  suggestion?: string;
+  auto_fix?: boolean;
+  failed_stage?: string;
+}
+
+export const COMPOSE_STAGE_LABELS: Record<string, string> = {
+  concat: "拼接",
+  transition: "转场",
+  subtitle: "字幕",
+  voiceover: "配音",
+  bgm: "BGM",
+  audio_mix: "混缩",
+  render: "渲染",
+};
+
+export const COMPOSE_STAGES_ORDER = ["concat", "transition", "subtitle", "voiceover", "bgm", "audio_mix", "render"];
 
 export interface WfProjectSummary {
   id: string;
@@ -444,7 +569,7 @@ export interface WfProjectSummary {
 // 漫剧工作流 — API 函数
 // =====================================================
 
-export function wfCreateProject(data: { title: string; raw_input: string }) {
+export function wfCreateProject(data: { title: string; raw_input: string; reference_images?: string[] }) {
   return api<WfProject>("/api/projects", { method: "POST", body: JSON.stringify(data) });
 }
 
@@ -472,61 +597,186 @@ export function wfAiChat(payload: { model: string; messages: { role: string; con
 }
 
 export async function wfAiChatStream(
-  payload: { model: string; messages: { role: string; content: string }[] },
+  payload: { model: string; messages: { role: string; content: string }[]; max_tokens?: number; temperature?: number },
   onChunk: (text: string) => void,
 ): Promise<string> {
-  const res = await fetch("/api/ai/chat/stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  // Call Python backend directly to avoid Next.js dev proxy 30s timeout.
+  // AI responses (especially long JSON) can take 60s+.
+  const backendBase = `http://${window.location.hostname}:8787`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 分钟超时
+  let res: Response;
+  try {
+    res = await fetch(`${backendBase}/api/ai/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...payload, stream: false }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("AI 请求超时（5分钟），请检查网络后重试。");
+    }
+    throw err;
+  }
+  clearTimeout(timeoutId);
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`AI 请求失败: ${err}`);
   }
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let accumulated = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = decoder.decode(value, { stream: true });
-    for (const line of chunk.split("\n")) {
-      if (line.startsWith("data: ") && line.trim() !== "data: [DONE]") {
-        try {
-          const json = JSON.parse(line.slice(6));
-          const content = json.choices?.[0]?.delta?.content;
-          if (content) {
-            accumulated += content;
-            onChunk(accumulated);
-          }
-        } catch {
-          // skip malformed lines
-        }
-      }
-    }
-  }
-  return accumulated;
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content || "";
+  onChunk(content);
+  return content;
 }
 
-export function wfGenerateImage(payload: {
+export async function wfGenerateImage(payload: {
   model: string;
   prompt: string;
   n?: number;
   size?: string;
   project_id?: string;
   asset_filename?: string;
-}) {
-  return api<{ data: { url: string }[]; saved_assets?: { filename: string; asset_url: string }[] }>("/api/ai/image", {
+  /** 角色三视图 URL 列表，用于锚定分镜中的角色外貌 */
+  reference_image_urls?: string[];
+}): Promise<{ data: { url: string }[]; saved_assets?: { filename: string; asset_url: string }[] }> {
+  // Start async job
+  const startRes = await api<{ job_id: string; status: string }>("/api/ai/image", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+  const { job_id } = startRes;
+
+  // Poll until done (max 5 minutes, every 2 seconds)
+  const maxWaitMs = 5 * 60 * 1000;
+  const pollInterval = 2000;
+  const deadline = Date.now() + maxWaitMs;
+
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, pollInterval));
+    const jobRes = await api<{
+      status: string;
+      result?: { data: { url: string }[]; saved_assets?: { filename: string; asset_url: string }[] };
+      error?: string;
+    }>(`/api/ai/image/job/${job_id}`);
+    if (jobRes.status === "done") {
+      return jobRes.result!;
+    }
+    if (jobRes.status === "error") {
+      throw new Error(jobRes.error || "图像生成失败");
+    }
+    // still "pending" — keep polling
+  }
+  throw new Error("图像生成超时（等待超过5分钟）");
 }
 
-export function wfRenderProject(projectId: string) {
-  return api<{ message: string; output_url: string; output_path: string }>(`/api/projects/${projectId}/render`, {
+// =====================================================
+// Step 4 版本历史
+// =====================================================
+
+export interface Step4Version {
+  version: number;
+  timestamp: string;
+  reason: string;
+  summary: string;
+  filename: string;
+}
+
+// Step 3 版本历史
+
+export interface Step3Version {
+  version: number;
+  timestamp: string;
+  reason: string;
+  summary: string;
+  filename: string;
+}
+
+export function wfListStep3Versions(projectId: string) {
+  return api<{ versions: Step3Version[] }>(`/api/projects/${projectId}/versions/step3`);
+}
+
+export function wfCreateStep3Snapshot(projectId: string, reason: string) {
+  return api<{ snapshot: Record<string, unknown> }>(`/api/projects/${projectId}/versions/step3/snapshot`, {
     method: "POST",
+    body: JSON.stringify({ reason }),
   });
+}
+
+export function wfRestoreStep3Version(projectId: string, filename: string) {
+  return api<WfProject>(`/api/projects/${projectId}/versions/step3/restore`, {
+    method: "POST",
+    body: JSON.stringify({ filename }),
+  });
+}
+
+// Step 4 版本历史
+
+export function wfListStep4Versions(projectId: string) {
+  return api<{ versions: Step4Version[] }>(`/api/projects/${projectId}/versions/step4`);
+}
+
+export function wfCreateStep4Snapshot(projectId: string, reason: string) {
+  return api<{ snapshot: Record<string, unknown> }>(`/api/projects/${projectId}/versions/step4/snapshot`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function wfRestoreStep4Version(projectId: string, filename: string) {
+  return api<WfProject>(`/api/projects/${projectId}/versions/step4/restore`, {
+    method: "POST",
+    body: JSON.stringify({ filename }),
+  });
+}
+
+export function wfRenderProject(projectId: string, config?: Partial<ComposeConfig>) {
+  return api<{ message: string; status: string; resume_from?: string | null; stages_total?: number; output_url?: string; output_path?: string }>(
+    `/api/projects/${projectId}/render`,
+    {
+      method: "POST",
+      body: config ? JSON.stringify(config) : undefined,
+    },
+  );
+}
+
+// ── Batch Shot Generation ──
+
+export function wfBatchGenerateShots(projectId: string, opts: { shot_ids?: string[]; generate_all?: boolean }) {
+  return api<{ message: string; total: number; submitted: number }>(
+    `/api/projects/${projectId}/shots/generate-batch`,
+    { method: "POST", body: JSON.stringify(opts) },
+  );
+}
+
+// ── Version History (Step 5) ──
+
+export function wfListVersions(projectId: string, step: string) {
+  return api<{ step: string; versions: { version_id: string; created_at: string; trigger: string; label?: string | null; preview?: Record<string, unknown> }[]; max_versions: number }>(
+    `/api/projects/${projectId}/versions?step=${step}`,
+  );
+}
+
+export function wfCreateVersion(projectId: string, step: string, label?: string) {
+  return api<{ version_id: string; created_at: string; trigger: string; label?: string | null }>(
+    `/api/projects/${projectId}/versions`,
+    { method: "POST", body: JSON.stringify({ step, label }) },
+  );
+}
+
+export function wfRestoreVersion(projectId: string, step: string, versionId: string) {
+  return api<{ message: string; auto_saved_as?: string }>(
+    `/api/projects/${projectId}/versions/${step}/${versionId}/restore`,
+    { method: "POST" },
+  );
+}
+
+export function wfDeleteVersion(projectId: string, step: string, versionId: string) {
+  return api<{ message: string }>(
+    `/api/projects/${projectId}/versions/${step}/${versionId}`,
+    { method: "DELETE" },
+  );
 }
 
 export function wfUploadAsset(projectId: string, imageData: string, filename?: string) {
