@@ -265,6 +265,37 @@ export default function CanvasPanel() {
     fillMissingVisualPrompts,
   } = useWorkflowStore();
 
+  // ── AI model & Video provider switching ──
+  const [chatModel, setChatModel] = useState<string>("claude-opus-4-6");
+  const [videoProvider, setVideoProvider] = useState<string>("gemini");
+  useEffect(() => {
+    fetch("/api/config", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (d?.aiConfig?.videoProvider) setVideoProvider(d.aiConfig.videoProvider);
+        if (d?.aiConfig?.chatModel) setChatModel(d.aiConfig.chatModel);
+      })
+      .catch(() => {});
+  }, []);
+  const switchVideoProvider = useCallback((provider: string) => {
+    setVideoProvider(provider);
+    fetch("/api/session/key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ aiVideoProvider: provider }),
+    }).catch(() => {});
+  }, []);
+  const switchChatModel = useCallback((model: string) => {
+    setChatModel(model);
+    fetch("/api/session/key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ aiChatModel: model }),
+    }).catch(() => {});
+  }, []);
+
   // ── Measured heights from ResizeObserver ──
   const [measuredHeights, setMeasuredHeights] = useState<Map<string, number>>(new Map());
   const observersRef = useRef<Map<string, { ro: ResizeObserver; el: Element }>>(new Map());
@@ -459,6 +490,31 @@ export default function CanvasPanel() {
         if (!b) return null;
         return (
           <div style={{ position: "absolute", left: b.x, top: b.y }}>
+            {/* AI 模型切换 */}
+            <div style={{ display: "flex", gap: 4, marginBottom: 6, flexWrap: "wrap", alignItems: "center", position: "relative", zIndex: 10 }}>
+              <span style={{ fontSize: 10, color: "#666", marginRight: 4 }}>AI模型:</span>
+              {[
+                { key: "claude-opus-4-6", label: "Opus 4.6" },
+                { key: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+                { key: "gemini-2.5-pro", label: "Gemini Pro" },
+              ].map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => switchChatModel(m.key)}
+                  style={{
+                    padding: "2px 8px",
+                    borderRadius: 4,
+                    border: chatModel === m.key ? "1px solid #7c3aed" : "1px solid #444",
+                    background: chatModel === m.key ? "#7c3aed22" : "transparent",
+                    color: chatModel === m.key ? "#c084fc" : "#888",
+                    fontSize: 10,
+                    cursor: "pointer",
+                  }}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
             <ResizableWrapper blockKey="script" initialWidth={b.width} onSizeChange={handleSizeChange} onPositionChange={handlePositionChange}>
             <ScriptBlock
               analysis={project.script.analysis}
@@ -472,69 +528,42 @@ export default function CanvasPanel() {
               progress={stageProgress?.stage === "剧本分析" ? stageProgress.percent : undefined}
               progressText={stageProgress?.stage === "剧本分析" ? stageProgress.step : undefined}
             />
+            {/* 风格配置（合并到剧本阶段下方） */}
+            {project.script?.analysis && (
+              <div style={{ marginTop: 16, background: "#1e1e2e", borderRadius: 12, border: project.style_config ? "1px solid #4ade80" : "1px dashed #7c3aed", padding: 16 }}>
+                {project.style_config && selectedBlock?.id !== "style-config" ? (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#4ade80", marginBottom: 4 }}>✓ 风格已配置</div>
+                      <div style={{ fontSize: 12, color: "#999" }}>
+                        {project.style_config.art_substyle} · {project.style_config.aspect_ratio} · {project.style_config.duration_sec}s · {project.style_config.episode_count || "?"}集
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setSelectedBlock({ type: "style", id: "style-config", label: "编辑风格" })}
+                      style={{ fontSize: 12, padding: "4px 12px", borderRadius: 6, border: "1px solid #555", background: "transparent", color: "#ccc", cursor: "pointer" }}
+                    >
+                      修改
+                    </button>
+                  </div>
+                ) : (
+                  <StyleConfigStep
+                    initialConfig={project.style_config || null}
+                    scriptContent={project.script.raw_input || ""}
+                    onSave={(config) => {
+                      setStyleConfig(config);
+                      setSelectedBlock(null);
+                    }}
+                  />
+                )}
+              </div>
+            )}
             </ResizableWrapper>
           </div>
         );
       })()}
 
-      {/* ── Style Config (Step 2) ── */}
-      {(() => {
-        const b = findBlock("style-config");
-        if (!b) return null;
-        return (
-          <div ref={makeResizeRef("style-config")} style={{ position: "absolute", left: b.x, top: b.y }}>
-            <ResizableWrapper blockKey="style-config" initialWidth={b.width} onSizeChange={handleSizeChange} onPositionChange={handlePositionChange}>
-            <div
-              style={{
-                background: "#1e1e2e",
-                borderRadius: 12,
-                border: project.style_config ? "1px solid #4ade80" : "1px dashed #7c3aed",
-                padding: 20,
-                width: "100%",
-                boxSizing: "border-box",
-              }}
-            >
-              {project.style_config && selectedBlock?.id !== "style-config" ? (
-                /* Collapsed summary when already configured */
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#4ade80", marginBottom: 4 }}>
-                      ✓ 风格已配置
-                    </div>
-                    <div style={{ fontSize: 12, color: "#999" }}>
-                      {project.style_config.art_substyle} · {project.style_config.aspect_ratio} · {project.style_config.duration_sec}s
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setSelectedBlock({ type: "style", id: "style-config", label: "编辑风格配置" })}
-                    style={{
-                      padding: "6px 16px",
-                      borderRadius: 8,
-                      border: "1px solid #555",
-                      background: "transparent",
-                      color: "#ccc",
-                      fontSize: 12,
-                      cursor: "pointer",
-                    }}
-                  >
-                    修改
-                  </button>
-                </div>
-              ) : (
-                <StyleConfigStep
-                  initialConfig={project.style_config || null}
-                  scriptContent={project.script.raw_input || ""}
-                  onSave={(config) => {
-                    setStyleConfig(config);
-                    setSelectedBlock(null);
-                  }}
-                />
-              )}
-            </div>
-            </ResizableWrapper>
-          </div>
-        );
-      })()}
+      {/* Style Config 已合并到 script block 内 */}
 
       {/* ── Generate Assets Button ── */}
       {(() => {
@@ -719,13 +748,53 @@ export default function CanvasPanel() {
               }}
               ref={makeResizeRef("video")}
             >
-              {/* Batch generate button */}
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+              {/* Video provider selector + Batch generate button */}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ marginRight: "auto", display: "flex", gap: 4 }}>
+                  {[
+                    { key: "jimeng", label: "即梦 3.0" },
+                    { key: "gemini", label: "Veo 3.1" },
+                  ].map((p) => (
+                    <button
+                      key={p.key}
+                      onClick={() => switchVideoProvider(p.key)}
+                      style={{
+                        padding: "3px 10px",
+                        borderRadius: 5,
+                        border: videoProvider === p.key ? "1px solid #7c3aed" : "1px solid #444",
+                        background: videoProvider === p.key ? "#7c3aed22" : "transparent",
+                        color: videoProvider === p.key ? "#c084fc" : "#888",
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  ))
+                  }
+                </div>
+                <button
+                  onClick={() => fillMissingVisualPrompts(true)}
+                  disabled={chatLoading}
+                  title="重新生成所有镜头的 visual_prompt（跨集不重复）"
+                  style={{
+                    padding: "4px 14px",
+                    borderRadius: 6,
+                    border: "1px solid #f59e0b",
+                    background: "transparent",
+                    color: "#fbbf24",
+                    fontSize: 11,
+                    cursor: chatLoading ? "not-allowed" : "pointer",
+                    opacity: chatLoading ? 0.5 : 1,
+                  }}
+                >
+                  重生提示词
+                </button>
                 {project.episodes.some((ep) => ep.shots.some((s) => !s.visual_prompt)) && (
                   <button
                     onClick={() => fillMissingVisualPrompts()}
                     disabled={chatLoading}
-                    title="对 visual_prompt 为空的镜头，调用 AI 批量补填 Seedance 2.0 格式提示词"
+                    title="对 visual_prompt 为空的镜头，调用 AI 批量补填"
                     style={{
                       padding: "4px 14px",
                       borderRadius: 6,

@@ -9,11 +9,10 @@ interface StageIndicatorProps {
 
 const STAGES: { id: WorkflowStage; label: string; icon: string }[] = [
   { id: "script", label: "剧本", icon: "1" },
-  { id: "style", label: "风格", icon: "2" },
-  { id: "character", label: "角色", icon: "3" },
-  { id: "storyboard", label: "分镜", icon: "4" },
-  { id: "video", label: "视频", icon: "5" },
-  { id: "post", label: "后期", icon: "6" },
+  { id: "character", label: "角色", icon: "2" },
+  { id: "storyboard", label: "分镜", icon: "3" },
+  { id: "video", label: "视频", icon: "4" },
+  { id: "post", label: "后期", icon: "5" },
 ];
 
 const STATUS_STYLES: Record<StageStatus, { bg: string; color: string; borderColor: string; icon?: string }> = {

@@ -122,6 +122,7 @@ export default function ScriptBlock({
   progressText,
 }: ScriptBlockProps) {
   const [expanded, setExpanded] = useState(false);
+  const [activeEpIdx, setActiveEpIdx] = useState(0);
 
   const updateChar = useCallback(
     (charId: string, field: string, value: string) => {
@@ -342,27 +343,36 @@ export default function ScriptBlock({
           <div style={{ fontSize: 13, fontWeight: 600, color: "#ccc", marginBottom: 6 }}>
             分集 ({analysis.episodes.length})
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {analysis.episodes.map((ep) => (
-              <div
-                key={ep.episode_id}
-                style={{
-                  background: "#252535",
-                  borderRadius: 6,
-                  padding: "6px 12px",
-                  fontSize: 12,
-                  color: "#ccc",
-                }}
-              >
-                EP{ep.episode_id}: {ep.title} ({ep.duration_target})
-              </div>
-            ))}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {analysis.episodes.map((ep, idx) => {
+              const isActive = idx === activeEpIdx;
+              return (
+                <button
+                  key={ep.episode_id}
+                  onClick={() => setActiveEpIdx(idx)}
+                  style={{
+                    background: isActive ? "#7c3aed22" : "#252535",
+                    border: isActive ? "1px solid #7c3aed" : "1px solid #333",
+                    borderRadius: 6,
+                    padding: "6px 12px",
+                    fontSize: 12,
+                    color: isActive ? "#c084fc" : "#ccc",
+                    cursor: "pointer",
+                  }}
+                >
+                  EP{ep.episode_id}: {ep.title} ({ep.duration_target})
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* ── Expanded: Shot Details ── */}
-      {expanded && analysis.episodes.map((ep) => (
+      {/* ── Expanded: Shot Details (selected episode only) ── */}
+      {expanded && (() => {
+        const ep = analysis.episodes[activeEpIdx] || analysis.episodes[0];
+        if (!ep) return null;
+        return (
         <div key={ep.episode_id} style={{ marginTop: 12 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#aaa", marginBottom: 6 }}>
             EP{ep.episode_id} 分镜详情
@@ -429,7 +439,8 @@ export default function ScriptBlock({
             </div>
           ))}
         </div>
-      ))}
+        );
+      })()}
 
       {/* ── Expand/Collapse Toggle ── */}
       <div style={{ marginTop: 10, textAlign: "center" }}>

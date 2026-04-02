@@ -82,7 +82,10 @@ function VideoCard({
     return () => clearInterval(interval);
   }, [shot.video_task_id, shot.status, pollTask, timedOut]);
 
-  const hasVideo = shot.video_url || shot.video_local_path;
+  // 即梦/Gemini 视频的远程 URL 可能过期，优先用本地路径
+  const inferredLocalPath = shot.video_local_path
+    || (shot.video_task_id && shot.video_url ? `/media/videos/${shot.video_task_id}.mp4` : null);
+  const hasVideo = shot.video_url || inferredLocalPath;
   const cameraLabel = CAMERA_LABELS[shot.camera_movement] || shot.camera_movement || "";
 
   return (
@@ -113,11 +116,11 @@ function VideoCard({
       >
         {hasVideo ? (
           <video
-            src={shot.video_local_path || shot.video_url || ""}
+            src={inferredLocalPath || shot.video_url || ""}
             style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }}
             onClick={(e) => {
               e.preventDefault();
-              setPreviewSrc(shot.video_local_path || shot.video_url || "");
+              setPreviewSrc(inferredLocalPath || shot.video_url || "");
             }}
             preload="metadata"
           />
@@ -318,6 +321,8 @@ function VideoProgressBar({ episodes }: { episodes: WfEpisode[] }) {
 // ── Main Grid ──
 
 export default function VideoGrid({ episodes, onEditShot, onRegenerateVideo, onApproveVideo }: VideoGridProps) {
+  const [activeEpIdx, setActiveEpIdx] = useState(0);
+
   if (episodes.length === 0) {
     return (
       <CanvasBlock title="视频生成" status="pending">
@@ -326,29 +331,60 @@ export default function VideoGrid({ episodes, onEditShot, onRegenerateVideo, onA
     );
   }
 
+  const ep = episodes[activeEpIdx] || episodes[0];
+
   return (
     <>
       <VideoProgressBar episodes={episodes} />
-      {episodes.map((ep) => (
-        <CanvasBlock
-          key={ep.id}
-          title={`视频: ${ep.title}`}
-          status={ep.shots.some((s) => s.video_url) ? "done" : "pending"}
-        >
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingBottom: 8 }}>
-            {ep.shots.map((shot, i) => (
-              <VideoCard
-                key={shot.id}
-                shot={shot}
-                index={i}
-                onEdit={() => onEditShot(ep.id, shot.id)}
-                onRegenerate={() => onRegenerateVideo(ep.id, shot.id)}
-                onApprove={onApproveVideo ? () => onApproveVideo(ep.id, shot.id) : undefined}
-              />
-            ))}
+      <CanvasBlock
+        key={ep.id}
+        title={`视频: ${ep.title}`}
+        status={ep.shots.some((s) => s.video_url) ? "done" : "pending"}
+      >
+        {/* 集数切换按钮 */}
+        {episodes.length > 1 && (
+          <div style={{ display: "flex", gap: 4, marginBottom: 10, flexWrap: "wrap" }}>
+            {episodes.map((e, idx) => {
+              const epDone = e.shots.filter((s) => s.video_url || s.video_local_path).length;
+              const epTotal = e.shots.length;
+              const isActive = idx === activeEpIdx;
+              return (
+                <button
+                  key={e.id}
+                  onClick={() => setActiveEpIdx(idx)}
+                  style={{
+                    padding: "4px 12px",
+                    borderRadius: 5,
+                    border: isActive ? "1px solid #7c3aed" : "1px solid #444",
+                    background: isActive ? "#7c3aed22" : "transparent",
+                    color: isActive ? "#c084fc" : "#888",
+                    fontSize: 11,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  EP{idx + 1}: {e.title?.slice(0, 8) || `第${idx + 1}集`}
+                  <span style={{ marginLeft: 4, fontSize: 10, color: epDone === epTotal && epTotal > 0 ? "#4ade80" : "#666" }}>
+                    {epDone}/{epTotal}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-        </CanvasBlock>
-      ))}
+        )}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingBottom: 8 }}>
+          {ep.shots.map((shot, i) => (
+            <VideoCard
+              key={shot.id}
+              shot={shot}
+              index={i}
+              onEdit={() => onEditShot(ep.id, shot.id)}
+              onRegenerate={() => onRegenerateVideo(ep.id, shot.id)}
+              onApprove={onApproveVideo ? () => onApproveVideo(ep.id, shot.id) : undefined}
+            />
+          ))}
+        </div>
+      </CanvasBlock>
     </>
   );
 }

@@ -40,7 +40,7 @@ import {
   analyzeScript,
 } from "./workflow-engine";
 
-export type WorkflowStage = "script" | "style" | "character" | "storyboard" | "video" | "post";
+export type WorkflowStage = "script" | "style" | "character" | "storyboard" | "video" | "post"; // "style" 保留兼容但不再作为独立步骤
 
 /** 每个阶段的生命周期状态 */
 export type StageStatus = "locked" | "active" | "generating" | "review" | "confirmed";
@@ -102,11 +102,11 @@ interface StoreState {
   editPanelTarget: EditPanelTarget | null;
 }
 
-const STAGE_ORDER: WorkflowStage[] = ["script", "style", "character", "storyboard", "video", "post"];
+const STAGE_ORDER: WorkflowStage[] = ["script", "character", "storyboard", "video", "post"];
 
 const DEFAULT_STAGE_STATUSES: Record<WorkflowStage, StageStatus> = {
   script: "active",
-  style: "locked",
+  style: "confirmed", // style 合并到 script，始终 confirmed
   character: "locked",
   storyboard: "locked",
   video: "locked",
@@ -129,15 +129,13 @@ function inferStageStatuses(project: WfProject): Record<WorkflowStage, StageStat
   if (hasScript) s.script = "confirmed";
   else s.script = "active";
 
-  // style
-  if (hasStyle) s.style = "confirmed";
-  else if (hasScript) s.style = "active";
-  else s.style = "locked";
+  // style（合并到 script，始终 confirmed）
+  s.style = "confirmed";
 
-  // character
+  // character — script 完成即解锁（不再依赖 style）
   if (isAssetsLocked || hasStoryboard) s.character = "confirmed";
   else if (hasChars) s.character = "review";
-  else if (hasStyle) s.character = "active";
+  else if (hasScript) s.character = "active";
   else s.character = "locked";
 
   // storyboard — 角色完成即可进入分镜（不强制要求资产锁定）
@@ -814,13 +812,13 @@ async function regenerateScript() {
     wfUpdateProject(project.id, updatedProject).catch((e: unknown) => console.warn("[auto-save]", e));
 
     setStageStatus("script", "confirmed");
-    setStageStatus("style", "active");
-    setState({ currentStage: "style" });
+    setStageStatus("character", "active");
+    setState({ currentStage: "script" }); // 留在 script 页面让用户确认风格
 
     const totalShots = episodes.reduce((s, ep) => s + ep.shots.length, 0);
     addSystemMessage(
       `✅ 剧本分析完成！提取了 ${characters.length} 个角色、${scenes.length} 个场景、${episodes.length} 集、${totalShots} 个镜头。\n` +
-      `已自动进入风格配置阶段。`,
+      `请在下方确认风格配置后进入角色设计。`,
     );
   } catch (err) {
     setState({ chatLoading: false, streamingContent: "", stageProgress: null });
@@ -1140,19 +1138,42 @@ async function generateStoryboardImages(imageModel?: string) {
     }
   }
 
+  // 构建所有镜头的扁平列表，用于叙事上下文
+  const allShots = project.episodes.flatMap((ep) => ep.shots);
+  // 前帧参考链：记录上一个成功生成的分镜图 URL
+  let prevStoryboardUrl: string | null = null;
+
   for (const ep of project.episodes) {
     for (const shot of ep.shots) {
       done++;
       // 跳过已有真实图片的镜头（非空、非 1×1 占位图）
       if (shot.storyboard_image && !shot.storyboard_image.startsWith("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB")) {
         addSystemMessage(`分镜 ${done}/${total} 已有图片，跳过: ${shot.id}`);
+        prevStoryboardUrl = shot.storyboard_image; // 记住已有图片，供下一帧参考
         continue;
       }
       addSystemMessage(`正在生成分镜 ${done}/${total}: ${shot.raw_description.slice(0, 30)}...`);
       updateShot(ep.id, shot.id, { status: "storyboard" });
 
-      // 使用公共增强函数：注入风格前缀 + 角色外貌 + 参考图 + 过滤冲突风格词
-      const { prompt: storyboardPrompt, refImageUrls } = buildEnhancedStoryboardPrompt(shot, project);
+      // 构建叙事上下文（前后镜头的动作）
+      const shotIdx = allShots.findIndex((s) => s.id === shot.id);
+      const prevShot = shotIdx > 0 ? allShots[shotIdx - 1] : undefined;
+      const nextShot = shotIdx < allShots.length - 1 ? allShots[shotIdx + 1] : undefined;
+      const narrativeContext = {
+        shotIndex: shotIdx + 1,
+        totalShots: allShots.length,
+        prevAction: prevShot?.action || prevShot?.raw_description,
+        nextAction: nextShot?.action || nextShot?.raw_description,
+      };
+
+      // 使用公共增强函数：注入风格前缀 + 角色外貌 + 参考图 + 叙事上下文
+      const { prompt: storyboardPrompt, refImageUrls } = buildEnhancedStoryboardPrompt(shot, project, narrativeContext);
+
+      // 前帧参考链：把上一帧的图片加入参考图列表（排在角色三视图之后）
+      const allRefUrls = [...refImageUrls];
+      if (prevStoryboardUrl && !prevStoryboardUrl.startsWith("data:")) {
+        allRefUrls.push(prevStoryboardUrl);
+      }
 
       // 最多重试 1 次（共 2 次尝试）
       let storyboardSuccess = false;
@@ -1166,11 +1187,13 @@ async function generateStoryboardImages(imageModel?: string) {
             size: "1080x1920",
             project_id: project.id,
             asset_filename: `storyboard_${shot.id}.png`,
-            // 传入角色三视图作为参考图，锚定角色外貌一致性
-            ...(refImageUrls.length > 0 ? { reference_image_urls: refImageUrls } : {}),
+            // 角色三视图 + 前帧参考图，双重锚定一致性
+            ...(allRefUrls.length > 0 ? { reference_image_urls: allRefUrls } : {}),
           });
           const url = result.saved_assets?.[0]?.asset_url || result.data?.[0]?.url || null;
           updateShot(ep.id, shot.id, { storyboard_image: url, status: url ? "storyboard" : "draft" });
+          // 更新前帧参考链
+          if (url) prevStoryboardUrl = url;
           // 立即持久化，防止刷新丢失
           const snap = getState().project;
           if (snap) wfUpdateProject(snap.id, { episodes: snap.episodes }).catch((e: unknown) => console.warn("[storyboard-save]", e));
@@ -1227,13 +1250,31 @@ function extractAppearanceFromCharPrompt(raw: string): string {
  * 构建增强的分镜提示词 — 注入角色外貌、参考图 URL、统一风格前缀
  * 供 generateStoryboardImages / regenerateSingleStoryboard 共用，保持逻辑一致
  */
-function buildEnhancedStoryboardPrompt(shot: WfShot, project: WfProject): { prompt: string; refImageUrls: string[] } {
+function buildEnhancedStoryboardPrompt(
+  shot: WfShot,
+  project: WfProject,
+  narrativeContext?: { shotIndex: number; totalShots: number; prevAction?: string; nextAction?: string },
+): { prompt: string; refImageUrls: string[] } {
   // 1. 风格前缀（与角色三视图使用完全相同的 stylePrefix，保持视觉一致）
   const fullStylePrompt = project.style_config?.compiled_style_prompt
     || "anime illustration style, manga art style, clean lineart, vibrant colors";
   const styleTop3 = fullStylePrompt.split(",").slice(0, 3).map((s: string) => s.trim()).join(", ");
 
   let storyboardPrompt = shot.prompt || shot.visual_prompt || shot.raw_description;
+
+  // 1.5 叙事上下文注入：让分镜图知道自己在故事中的位置
+  if (narrativeContext) {
+    const ctxParts: string[] = [];
+    ctxParts.push(`[Shot ${narrativeContext.shotIndex}/${narrativeContext.totalShots}]`);
+    if (narrativeContext.prevAction) {
+      ctxParts.push(`previous shot: ${narrativeContext.prevAction.slice(0, 60)}`);
+    }
+    if (narrativeContext.nextAction) {
+      ctxParts.push(`next shot: ${narrativeContext.nextAction.slice(0, 60)}`);
+    }
+    if (shot.emotion) ctxParts.push(`mood: ${shot.emotion}`);
+    storyboardPrompt = `${ctxParts.join(", ")}, ${storyboardPrompt}`;
+  }
 
   // 2. 将角色 ID（char_001 等）替换为角色纯外貌描述，同时收集参考图 URL
   const analysisChars = project.script?.analysis?.characters || [];
@@ -1321,8 +1362,20 @@ async function regenerateSingleStoryboard(episodeId: string, shotId: string) {
   addSystemMessage(`正在重新生成分镜: ${shot.raw_description.slice(0, 30)}...`);
   updateShot(episodeId, shotId, { status: "storyboard" });
 
-  // 使用公共增强函数，注入风格+角色+参考图
-  const { prompt: enhancedPrompt, refImageUrls } = buildEnhancedStoryboardPrompt(shot, project);
+  // 构建叙事上下文
+  const allShots = project.episodes.flatMap((e) => e.shots);
+  const shotIdx = allShots.findIndex((s) => s.id === shotId);
+  const prevShot = shotIdx > 0 ? allShots[shotIdx - 1] : undefined;
+  const nextShot = shotIdx < allShots.length - 1 ? allShots[shotIdx + 1] : undefined;
+  const narrativeCtx = {
+    shotIndex: shotIdx + 1,
+    totalShots: allShots.length,
+    prevAction: prevShot?.action || prevShot?.raw_description,
+    nextAction: nextShot?.action || nextShot?.raw_description,
+  };
+
+  // 使用公共增强函数，注入风格+角色+参考图+叙事上下文
+  const { prompt: enhancedPrompt, refImageUrls } = buildEnhancedStoryboardPrompt(shot, project, narrativeCtx);
 
   try {
     const result = await wfGenerateImage({
@@ -1358,6 +1411,63 @@ function assembleVideoPrompt(shot: WfShot, project: WfProject): string {
   // 1. 分镜级：优先使用详细提示词
   let base = shot.prompt || shot.visual_prompt || shot.raw_description;
 
+  // 1.5 注入视频专属镜头语言（动作、景别、运镜、构图、情绪）
+  const cinematicParts: string[] = [];
+
+  // 动作描述（视频最核心的运动语义）
+  if (shot.action) cinematicParts.push(shot.action);
+
+  // 景别转自然语言
+  const SHOT_TYPE_DESC: Record<string, string> = {
+    WS: "wide shot", EWS: "extreme wide shot",
+    MS: "medium shot", MCU: "medium close-up",
+    CU: "close-up", ECU: "extreme close-up",
+    OTS: "over-the-shoulder", POV: "point of view",
+  };
+  if (shot.shot_type) {
+    const stDesc = SHOT_TYPE_DESC[shot.shot_type] || `${shot.shot_type} shot`;
+    if (!base.toLowerCase().includes(stDesc)) cinematicParts.push(stDesc);
+  }
+
+  // 运镜文本描述
+  const CAMERA_DESC: Record<string, string> = {
+    push_in_slow: "slow push in", pull_back: "pull back",
+    pan_left: "pan left", pan_right: "pan right",
+    orbit: "orbiting camera", static: "static shot",
+    handheld: "handheld camera", handheld_subtle: "subtle handheld sway",
+    tilt_up: "tilt up", tilt_down: "tilt down",
+    crane_down: "crane down", crane_down_fast: "fast crane down",
+    crane_up: "crane up", pan_down: "pan down",
+    vertical_descend_slow: "slow vertical descent",
+    dolly_in: "dolly in", dolly_out: "dolly out",
+    tracking: "tracking shot",
+  };
+  if (shot.camera_movement) {
+    const camDesc = CAMERA_DESC[shot.camera_movement] || shot.camera_movement.replace(/_/g, " ");
+    cinematicParts.push(`camera movement: ${camDesc}`);
+  }
+
+  // 构图
+  if (shot.composition) cinematicParts.push(`composition: ${shot.composition}`);
+
+  // 打光（shot 级比 scene 级更精确）
+  if (shot.lighting_note) cinematicParts.push(`lighting: ${shot.lighting_note}`);
+
+  // 情绪基调
+  if (shot.emotion) cinematicParts.push(`mood: ${shot.emotion}`);
+
+  // 景深（从 optics 提取语义）
+  if (shot.optics) {
+    const fMatch = shot.optics.match(/f\/([\d.]+)/);
+    if (fMatch && parseFloat(fMatch[1]) <= 2.0) {
+      cinematicParts.push("shallow depth of field, bokeh background");
+    }
+  }
+
+  if (cinematicParts.length > 0) {
+    base += ", " + cinematicParts.join(", ");
+  }
+
   // 2. 角色级：将 char_xxx ID 替换为角色纯外貌描述（剥离三视图/摄影术语）
   const analysisChars = project.script?.analysis?.characters || [];
   for (const ac of analysisChars) {
@@ -1391,10 +1501,13 @@ function assembleVideoPrompt(shot: WfShot, project: WfProject): string {
           const parts: string[] = [];
           if (ac.appearance?.face) parts.push(ac.appearance.face);
           if (ac.appearance?.hair) parts.push(ac.appearance.hair);
-          return parts.length > 0 ? parts.join(", ") : extractAppearanceFromCharPrompt(ac.visual_prompt_template || ac.three_view_prompts?.front || "").slice(0, 120);
+          if (ac.appearance?.body) parts.push(ac.appearance.body);
+          if ((ac.appearance as Record<string, string>)?.clothing) parts.push((ac.appearance as Record<string, string>).clothing);
+          if ((ac.appearance as Record<string, string>)?.skin_tone) parts.push((ac.appearance as Record<string, string>).skin_tone);
+          return parts.length > 0 ? `${ac.name}: ${parts.join(", ")}`.slice(0, 200) : extractAppearanceFromCharPrompt(ac.visual_prompt_template || ac.three_view_prompts?.front || "").slice(0, 200);
         }
         const wc = project.characters.find((c) => c.id === id);
-        return wc?.appearance_prompt?.slice(0, 120);
+        return wc?.appearance_prompt ? extractAppearanceFromCharPrompt(wc.appearance_prompt).slice(0, 200) : undefined;
       })
       .filter(Boolean);
     if (charHints.length) base += `, characters: ${charHints.join("; ")}`;
@@ -1411,7 +1524,7 @@ function assembleVideoPrompt(shot: WfShot, project: WfProject): string {
 
   // 3.5 过滤冲突写实关键词（与分镜生成一致）— 防止 visual_prompt 中残留的写实词污染视频
   const conflictingPatterns = [
-    /\bcinematic\b/gi, /\brealistic\b/gi, /\bphotorealistic\b/gi, /\braw\s+photo\b/gi,
+    /\brealistic\b/gi, /\bphotorealistic\b/gi, /\braw\s+photo\b/gi,
     /\bultra\s+realistic\b/gi, /\bhyperrealistic\b/gi, /\bfilm\s+grain\b/gi, /\bmovie\s+still\b/gi,
     /\breal\s+human\b/gi, /\breal\s+person\b/gi, /\breal\s+face\b/gi, /\bphoto\b/gi,
     /\d+mm\s+lens/gi, /f\/[\d.]+/gi,
@@ -1431,13 +1544,18 @@ function assembleVideoPrompt(shot: WfShot, project: WfProject): string {
     }
   }
 
-  // 5. 首帧存在时，强化画风一致性指令 + 反面约束
+  // 5. 首帧存在时，强化画风 + 角色一致性指令
   if (shot.storyboard_image) {
-    base += ", strictly match the art style, color palette, and character design of the first frame image, maintain visual consistency throughout the video, DO NOT change art style to photorealistic or live-action, keep the same stylized 3D cartoon rendering as the reference frame";
+    const charNames = shot.character_ids
+      ?.map((id) => analysisChars.find((c) => c.char_id === id)?.name)
+      .filter(Boolean);
+    base += ", strictly follow the first frame image: same characters";
+    if (charNames?.length) base += ` (${charNames.join(", ")})`;
+    base += ", same face features, same hairstyle, same outfit, same art style and color palette throughout the entire video, DO NOT change character appearance or art style mid-video";
   }
 
   // 6. 明确禁止字幕、写实化、文字叠加
-  base += ", no subtitles, no text overlay, no watermark, no captions, NOT photorealistic, NOT real human faces";
+  base += ", no subtitles, no text overlay, no watermark, no captions, no speech bubbles, no background music, silent video, NOT photorealistic, NOT real human faces";
 
   return base;
 }
@@ -1477,74 +1595,84 @@ function collectCharRefImagesForVideo(shot: WfShot, project: WfProject): string[
 }
 
 /**
- * Option B — AI 补填：对当前项目所有 visual_prompt 为空的镜头，
- * 调用 Claude gemini-2.5-pro 批量生成 Seedance 2.0 格式提示词，并写入 prompt + visual_prompt 字段。
- * 适用于旧项目（step2b 失败时 visual_prompt 未被填充的情况）。
+ * AI 重新生成所有镜头的 visual_prompt。
+ * forceAll=true: 重新生成所有镜头（包括已有 visual_prompt 的）
+ * forceAll=false: 只补填缺失的
+ * 携带前集摘要防止跨集重复。
  */
-async function fillMissingVisualPrompts() {
+async function fillMissingVisualPrompts(forceAll = false) {
   const { project } = getState();
   if (!project) return;
 
-  // 收集所有需要补填的镜头
-  const missing: { epId: string; shot: WfShot }[] = [];
+  // 收集需要处理的镜头
+  const targets: { epId: string; epTitle: string; shot: WfShot }[] = [];
   for (const ep of project.episodes) {
     for (const shot of ep.shots) {
-      if (!shot.visual_prompt) {
-        missing.push({ epId: ep.id, shot });
+      if (forceAll || !shot.visual_prompt) {
+        targets.push({ epId: ep.id, epTitle: ep.title, shot });
       }
     }
   }
 
-  if (missing.length === 0) {
+  if (targets.length === 0) {
     addSystemMessage("所有镜头的 visual_prompt 均已填充，无需补填。");
     return;
   }
 
-  addSystemMessage(`开始为 ${missing.length} 个镜头 AI 补填视频生成提示词...`);
+  addSystemMessage(`开始为 ${targets.length} 个镜头 ${forceAll ? "重新生成" : "AI 补填"}提示词...`);
 
-  // 获取风格关键词
   const styleKeywords = project.style_config?.compiled_style_prompt?.split(",").slice(0, 3).map((s: string) => s.trim()).join(", ") || "cinematic";
 
-  // 按集分组，每集一次 AI 请求（避免单次请求过长）
-  const byEpisode = new Map<string, typeof missing>();
-  for (const item of missing) {
-    if (!byEpisode.has(item.epId)) byEpisode.set(item.epId, []);
-    byEpisode.get(item.epId)!.push(item);
+  // 按集分组
+  const byEpisode: { epId: string; epTitle: string; items: { shot: WfShot }[] }[] = [];
+  for (const ep of project.episodes) {
+    const epItems = targets.filter((t) => t.epId === ep.id).map((t) => ({ shot: t.shot }));
+    if (epItems.length > 0) byEpisode.push({ epId: ep.id, epTitle: ep.title, items: epItems });
   }
 
   let filled = 0;
+  const prevEpSummaries: string[] = [];
 
-  for (const [epId, items] of byEpisode) {
-    // 构建 key → shot 映射，key 格式与 step2b 一致
+  for (const { epId, epTitle, items } of byEpisode) {
     const keyMap = new Map<string, WfShot>();
     const shotLines: string[] = [];
+    let shotIdx = 0;
     for (const { shot } of items) {
+      shotIdx++;
       const key = `${shot.id}`;
       keyMap.set(key, shot);
-      shotLines.push(`${key}: ${shot.shot_type} | ${shot.raw_description} | cam:${shot.camera_movement}`);
+      shotLines.push(`${key} [镜头${shotIdx}]: ${shot.shot_type} | 主体:${shot.raw_description} | 动作:${shot.action || ""} | 运镜:${shot.camera_movement} | 情绪:${shot.emotion || ""}`);
     }
 
-    const systemPrompt = `你是AI分镜提示词专家。为给定镜头生成英文 visual_prompt。只输出JSON，不要代码块。
+    const prevContext = prevEpSummaries.length > 0
+      ? `\n\n前面已完成的集数摘要（本集必须与这些完全不同）:\n${prevEpSummaries.join("\n")}\n`
+      : "";
 
-每个 visual_prompt 约80-120个英文单词，格式：
-[光学参数(focal length,aperture)] + [景别构图] + [主体外貌+精确动作含微动作] + [环境背景] + [灯光色彩] + [摄影机运动] + ${styleKeywords}
+    const systemPrompt = `你是AI分镜提示词专家。为第"${epTitle}"集的 ${items.length} 个镜头按叙事顺序生成英文 visual_prompt。只输出JSON，不要代码块。${prevContext}
 
-key 必须与输入镜头列表中的 key 完全一致。
+关键要求：
+1. 每个 visual_prompt 约80-120个英文单词
+2. 镜头之间必须体现叙事递进：动作、情绪、环境细节随剧情推进变化，严禁重复
+3. 同一角色在不同镜头中外貌描述必须完全一致
+4. 每个镜头必须有明确的角色动作（不能只有站立/静止）
+5. 本集画面必须与前面集数完全不同——不同的角色动作、不同的场景状态
+
+格式：[光学参数] + [景别构图] + [主体外貌+精确动作] + [环境背景] + [灯光色彩] + [摄影机运动] + ${styleKeywords}
+
+key 必须与输入完全一致。
 输出格式: {"镜头key1":"english prompt...","镜头key2":"english prompt..."}`;
 
     try {
       const result = await wfAiChatStream(
         {
-          model: "gemini-2.5-pro",
+          model: getState().aiConfig.chatModel,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: `镜头列表:\n${shotLines.join("\n")}` },
           ],
           temperature: 0.7,
         },
-        (text) => {
-          if (text.length < 80) addSystemMessage(`AI 补填进度(ep${epId}): ${text.slice(0, 60)}...`);
-        },
+        () => {},
       );
 
       const jsonStr = extractJson(result);
@@ -1570,12 +1698,15 @@ key 必须与输入镜头列表中的 key 完全一致。
       setState({ project: { ...getState().project! } });
 
       if (epFilled > 0) {
-        addSystemMessage(`ep${epId}: 补填了 ${epFilled} 个镜头提示词`);
+        addSystemMessage(`${epTitle}: ${forceAll ? "重新生成" : "补填"}了 ${epFilled} 个镜头提示词`);
+        // 收集本集摘要给下一集参考
+        const epActions = items.map((it) => it.shot.action || it.shot.raw_description).filter(Boolean).slice(0, 5);
+        prevEpSummaries.push(`${epTitle}: ${epActions.join("; ")}`);
       } else {
-        addSystemMessage(`ep${epId}: AI 返回 key 不匹配，样本: ${Object.keys(prompts).slice(0, 2).join(", ")}`);
+        addSystemMessage(`${epTitle}: AI 返回 key 不匹配，样本: ${Object.keys(prompts).slice(0, 2).join(", ")}`);
       }
     } catch (e) {
-      addSystemMessage(`ep${epId} 补填失败: ${(e as Error).message}`);
+      addSystemMessage(`${epTitle} 失败: ${(e as Error).message}`);
     }
   }
 
@@ -1717,7 +1848,7 @@ async function generateVideos() {
 
       const assembled = assembleVideoPrompt(shot, project);
       const promptText = isDialogue
-        ? `${assembled}, subtle movement, talking, minimal camera motion`
+        ? `${assembled}, subtle lip movement, character is talking, minimal camera motion, no speech bubbles, no subtitles, no audio`
         : assembled;
       const storyType = project.style_config?.story_type;
 
@@ -2143,10 +2274,11 @@ async function setStyleConfig(config: StyleConfig) {
   addSystemMessage(
     `风格配置已保存！类型: ${config.story_type}, 风格: ${config.art_substyle}, 比例: ${config.aspect_ratio}`,
   );
-  // 更新阶段状态
+  // 更新阶段状态（style 已合并到 script）
   if (getState().workflowMode === "interactive") {
-    setStageStatus("style", "confirmed");
+    setStageStatus("script", "confirmed");
     setStageStatus("character", "active");
+    setState({ currentStage: "character" });
   }
   try {
     await wfUpdateProject(project.id, { style_config: config, status: "configured" as WfProject["status"] });

@@ -497,6 +497,9 @@ STATE = {
     "gemini_api_key": LOCAL_CONFIG.get("gemini_api_key", ""),
     "ai_video_base": LOCAL_CONFIG.get("ai_video_base", GEMINI_BASE),
     "ai_video_model": LOCAL_CONFIG.get("ai_video_model", "veo-2.0-generate-001"),
+    "jimeng_access_key": LOCAL_CONFIG.get("jimeng_access_key", ""),
+    "jimeng_secret_key": LOCAL_CONFIG.get("jimeng_secret_key", ""),
+    "ai_video_provider": LOCAL_CONFIG.get("ai_video_provider", ""),
 }
 
 
@@ -737,6 +740,153 @@ def _run_gemini_image_job(job_id: str, prompt: str, aspect_ratio: str, project_i
             _image_jobs[job_id] = {"status": "error", "error": f"Gemini 图像生成失败: {exc}"}
 
 
+# ---------------------------------------------------------------------------
+# 即梦 (Jimeng) API helpers — 火山引擎直连
+# ---------------------------------------------------------------------------
+
+def _get_jimeng_keys() -> tuple[str, str]:
+    """Return (access_key, secret_key) from config."""
+    ak = (STATE.get("jimeng_access_key") or "").strip()
+    sk = (STATE.get("jimeng_secret_key") or "").strip()
+    return ak, sk
+
+
+def _is_jimeng_mode() -> bool:
+    """Check if Jimeng API credentials are configured and video provider is set to jimeng."""
+    ak, sk = _get_jimeng_keys()
+    provider = (STATE.get("ai_video_provider") or "").strip().lower()
+    return provider == "jimeng" and bool(ak) and bool(sk)
+
+
+def _jimeng_request(action: str, body: dict, timeout: int = 300) -> dict:
+    """Make a signed request to Volcengine visual API."""
+    import hmac as _hmac
+    import hashlib as _hashlib
+    from datetime import datetime as _dt, timezone as _tz
+
+    ak, sk = _get_jimeng_keys()
+    if not ak or not sk:
+        raise ValueError("即梦 Access Key 或 Secret Key 未配置")
+
+    host = "visual.volcengineapi.com"
+    endpoint = f"https://{host}"
+    region = "cn-north-1"
+    service = "cv"
+
+    query_params = {"Action": action, "Version": "2022-08-31"}
+    canonical_querystring = "&".join(f"{k}={v}" for k, v in sorted(query_params.items()))
+
+    body_str = json.dumps(body, ensure_ascii=False)
+    body_bytes = body_str.encode("utf-8")
+
+    t = _dt.now(_tz.utc)
+    current_date = t.strftime("%Y%m%dT%H%M%SZ")
+    datestamp = t.strftime("%Y%m%d")
+
+    payload_hash = _hashlib.sha256(body_bytes).hexdigest()
+    signed_headers = "content-type;host;x-content-sha256;x-date"
+    canonical_headers = (
+        f"content-type:application/json\n"
+        f"host:{host}\n"
+        f"x-content-sha256:{payload_hash}\n"
+        f"x-date:{current_date}\n"
+    )
+    canonical_request = (
+        f"POST\n/\n{canonical_querystring}\n"
+        f"{canonical_headers}\n{signed_headers}\n{payload_hash}"
+    )
+
+    credential_scope = f"{datestamp}/{region}/{service}/request"
+    string_to_sign = (
+        f"HMAC-SHA256\n{current_date}\n{credential_scope}\n"
+        + _hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
+    )
+
+    def _sign(key: bytes, msg: str) -> bytes:
+        return _hmac.new(key, msg.encode("utf-8"), _hashlib.sha256).digest()
+
+    k_date = _sign(sk.encode("utf-8"), datestamp)
+    k_region = _sign(k_date, region)
+    k_service = _sign(k_region, service)
+    k_signing = _sign(k_service, "request")
+    signature = _hmac.new(k_signing, string_to_sign.encode("utf-8"), _hashlib.sha256).hexdigest()
+
+    authorization = (
+        f"HMAC-SHA256 Credential={ak}/{credential_scope}, "
+        f"SignedHeaders={signed_headers}, Signature={signature}"
+    )
+
+    headers = {
+        "Content-Type": "application/json",
+        "Host": host,
+        "X-Date": current_date,
+        "X-Content-Sha256": payload_hash,
+        "Authorization": authorization,
+    }
+
+    url = f"{endpoint}?{canonical_querystring}"
+    req = request.Request(url, data=body_bytes, headers=headers, method="POST")
+    opener = request.build_opener(request.ProxyHandler({}))
+    with opener.open(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _jimeng_create_video_task(
+    prompt: str,
+    aspect_ratio: str = "16:9",
+    duration: int = 5,
+    image_b64: str | None = None,
+    extra_images_b64: list[str] | None = None,
+) -> dict:
+    """Create a Jimeng 3.0 video generation task. Returns API response with task_id."""
+    # 选择 req_key（即梦 3.0 1080p）
+    if image_b64:
+        req_key = "jimeng_i2v_first_v30_1080"
+    else:
+        req_key = "jimeng_t2v_v30_1080p"
+
+    # frames: 121 ≈ 5s, 241 ≈ 10s
+    frames = 241 if duration >= 8 else 121
+
+    # 合法宽高比
+    valid_ratios = {"16:9", "4:3", "1:1", "3:4", "9:16", "21:9"}
+    if aspect_ratio not in valid_ratios:
+        aspect_ratio = "16:9"
+
+    body: dict = {
+        "req_key": req_key,
+        "prompt": prompt,
+        "seed": -1,
+        "frames": frames,
+        "aspect_ratio": aspect_ratio,
+    }
+    if image_b64:
+        # 首帧 + 可选的额外参考图（角色三视图）
+        images = [image_b64]
+        if extra_images_b64:
+            images.extend(extra_images_b64[:2])  # 最多 3 张总计
+        body["binary_data_base64"] = images
+        print(f"[Jimeng] Passing {len(images)} images (1 first frame + {len(images)-1} reference)")
+
+    print(f"[Jimeng] Creating task: req_key={req_key}, ratio={aspect_ratio}, frames={frames}")
+    return _jimeng_request("CVSync2AsyncSubmitTask", body)
+
+
+def _jimeng_poll_task(task_id: str, req_key: str) -> dict:
+    """Poll a Jimeng task status. Returns API response."""
+    body = {"req_key": req_key, "task_id": task_id}
+    return _jimeng_request("CVSync2AsyncGetResult", body, timeout=30)
+
+
+def _generate_jimeng_task_id() -> str:
+    """Generate a local task ID for Jimeng tasks."""
+    from datetime import datetime as _dt
+    import random as _rnd
+    ts = _dt.now().strftime("%Y%m%d%H%M%S")
+    suffix = "".join(_rnd.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=6))
+    return f"jim-{ts}-{suffix}"
+
+
 def _gemini_create_video_task(
     prompt: str,
     aspect_ratio: str = "16:9",
@@ -753,7 +903,7 @@ def _gemini_create_video_task(
     reference_images: list of {"b64": str, "mime": str} dicts for referenceImages (asset type).
     NOTE: image (first frame) and referenceImages cannot be used simultaneously.
     """
-    model = model_override or STATE.get("ai_video_model") or "veo-3.1-generate-001"
+    model = model_override or STATE.get("ai_video_model") or "veo-3.1-generate-preview"
     base = STATE.get("ai_video_base") or GEMINI_BASE
     url = f"{base}/models/{model}:predictLongRunning"
 
@@ -1607,6 +1757,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         "imageModel": STATE.get("ai_image_model", "imagen-4.0-generate-001"),
                         "videoModel": STATE.get("ai_video_model", "veo-2.0-generate-001"),
                         "geminiEnabled": _is_gemini_mode(),
+                        "jimengEnabled": _is_jimeng_mode(),
+                        "videoProvider": "jimeng" if _is_jimeng_mode() else ("gemini" if _is_gemini_mode() else "upstream"),
                     },
                 },
             )
@@ -1625,6 +1777,10 @@ class AppHandler(BaseHTTPRequestHandler):
             cached_record = find_task_record(task_id)
             if cached_record and cached_record.get("status") in {"succeeded", "failed", "cancelled"}:
                 return self.send_json(HTTPStatus.OK, cached_record)
+
+            # Jimeng task polling
+            if cached_record and cached_record.get("jimeng_task_id"):
+                return self._poll_jimeng_task(cached_record)
 
             # Gemini Veo operation polling
             if cached_record and cached_record.get("gemini_operation"):
@@ -2284,6 +2440,7 @@ class AppHandler(BaseHTTPRequestHandler):
         ai_image_base = data.get("aiImageBase") or STATE.get("ai_image_base", AI_IMAGE_BASE)
         ai_chat_model = data.get("aiChatModel") or STATE.get("ai_chat_model", "gemini-2.5-pro")
         ai_image_model = data.get("aiImageModel") or STATE.get("ai_image_model", "nano-banana-pro-preview")
+        ai_video_provider = data.get("aiVideoProvider") if "aiVideoProvider" in data else STATE.get("ai_video_provider", "")
 
         STATE.update(
             {
@@ -2295,6 +2452,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 "ai_image_base": ai_image_base,
                 "ai_chat_model": ai_chat_model,
                 "ai_image_model": ai_image_model,
+                "ai_video_provider": ai_video_provider,
             }
         )
         persisted_config = load_local_config()
@@ -2310,6 +2468,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 "ai_image_base": ai_image_base,
                 "ai_chat_model": ai_chat_model,
                 "ai_image_model": ai_image_model,
+                "ai_video_provider": ai_video_provider,
             }
         )
         persist_local_config(persisted_config)
@@ -2343,6 +2502,8 @@ class AppHandler(BaseHTTPRequestHandler):
         # Convert local asset paths to base64 data URIs before sending upstream
         self._resolve_local_urls(payload)
 
+        if _is_jimeng_mode():
+            return self._create_task_jimeng(payload, meta)
         if _is_gemini_mode():
             return self._create_task_gemini(payload, meta)
 
@@ -2420,7 +2581,7 @@ class AppHandler(BaseHTTPRequestHandler):
             MODEL_ALIAS = {
                 "veo-2": "veo-2.0-generate-001",
                 "veo-3": "veo-3.0-generate-001",
-                "veo-3.1": "veo-3.1-generate-001",
+                "veo-3.1": "veo-3.1-generate-preview",
             }
             model_override = MODEL_ALIAS.get(model_from_payload, model_from_payload)
 
@@ -2531,6 +2692,142 @@ class AppHandler(BaseHTTPRequestHandler):
             # Still processing
             cached_record["status"] = "processing"
             # Don't persist intermediate status to avoid excessive writes
+
+        return self.send_json(HTTPStatus.OK, cached_record)
+
+    def _create_task_jimeng(self, payload: dict, meta: dict | None):
+        """Create a video generation task via Jimeng (火山引擎) API."""
+        content = payload.get("content", [])
+        prompt_text = ""
+        all_images_b64: list[str] = []
+
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "text":
+                prompt_text += item.get("text", "") + " "
+            elif item.get("type") == "image_url":
+                url_obj = item.get("image_url", {})
+                url = url_obj.get("url", "")
+                b64_data = None
+                if url.startswith("data:"):
+                    _, _, b64_body = url.partition(",")
+                    b64_data = b64_body
+                elif url.startswith("http"):
+                    try:
+                        opener = request.build_opener(request.ProxyHandler({}))
+                        with opener.open(url, timeout=60) as resp:
+                            raw_bytes = resp.read()
+                        b64_data = base64.b64encode(raw_bytes).decode("ascii")
+                    except Exception as exc:
+                        print(f"[Jimeng] Failed to download image: {exc}")
+                if b64_data:
+                    all_images_b64.append(b64_data)
+
+        first_frame_b64 = all_images_b64[0] if all_images_b64 else None
+
+        prompt_text = prompt_text.strip()
+        if not prompt_text:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "缺少视频描述文本")
+
+        aspect_ratio = payload.get("ratio", "16:9")
+        duration = payload.get("duration", 5)
+        if duration == -1:
+            duration = 5
+
+        try:
+            resp = _jimeng_create_video_task(
+                prompt=prompt_text,
+                aspect_ratio=aspect_ratio,
+                duration=duration,
+                image_b64=first_frame_b64,
+                extra_images_b64=all_images_b64[1:] if len(all_images_b64) > 1 else None,
+            )
+        except error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            try:
+                err_data = json.loads(raw)
+            except json.JSONDecodeError:
+                err_data = {"error": raw}
+            return self.send_json(exc.code, err_data)
+        except Exception as exc:
+            return self.send_error_json(HTTPStatus.BAD_GATEWAY, f"即梦请求失败: {exc}")
+
+        # 解析即梦响应
+        code = resp.get("code", -1)
+        data = resp.get("data", {})
+        jimeng_task_id = data.get("task_id", "")
+
+        if code != 10000 or not jimeng_task_id:
+            err_msg = resp.get("message", "") or data.get("message", "") or str(resp)
+            return self.send_error_json(HTTPStatus.BAD_GATEWAY, f"即梦任务创建失败: {err_msg}")
+
+        # 确定 req_key 以便后续轮询
+        req_key = "jimeng_i2v_first_v30_1080" if first_frame_b64 else "jimeng_t2v_v30_1080p"
+
+        task_id = _generate_jimeng_task_id()
+        record = {
+            "id": task_id,
+            "status": "submitted",
+            "jimeng_task_id": jimeng_task_id,
+            "jimeng_req_key": req_key,
+            "tracked_at": now_iso(),
+            "model": payload.get("model", "jimeng-3.0-pro"),
+            "content": {},
+        }
+        if meta:
+            record["meta"] = meta
+        record["request_payload"] = sanitize_payload_for_storage(payload)
+        text_items = [item.get("text") for item in content if isinstance(item, dict) and item.get("type") == "text"]
+        if text_items:
+            record["title"] = text_items[0][:48]
+
+        record = upsert_task_record(record)
+        print(f"[Jimeng] Task created: local={task_id}, jimeng={jimeng_task_id}")
+        return self.send_json(HTTPStatus.OK, record)
+
+    def _poll_jimeng_task(self, cached_record: dict):
+        """Poll a Jimeng video generation task."""
+        jimeng_task_id = cached_record["jimeng_task_id"]
+        req_key = cached_record.get("jimeng_req_key", "jimeng_t2v_v30_1080p")
+
+        try:
+            resp = _jimeng_poll_task(jimeng_task_id, req_key)
+        except error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            try:
+                err_data = json.loads(raw)
+            except json.JSONDecodeError:
+                err_data = {"error": raw}
+            return self.send_json(exc.code, err_data)
+        except Exception as exc:
+            return self.send_error_json(HTTPStatus.BAD_GATEWAY, f"即梦轮询失败: {exc}")
+
+        code = resp.get("code", -1)
+        data = resp.get("data", {})
+        status = data.get("status", "")
+
+        if code == 10000 and status == "done":
+            video_url = data.get("video_url", "")
+            if video_url:
+                cached_record["status"] = "succeeded"
+                cached_record["content"] = {"video_url": video_url}
+                cached_record["_proxy"] = {"videoUrls": [video_url], "status": 200}
+                upsert_task_record(cached_record)
+                if STATE.get("auto_save", True):
+                    cached_record = save_task_video(cached_record)
+            else:
+                cached_record["status"] = "failed"
+                cached_record["error"] = "即梦未返回视频 URL"
+                upsert_task_record(cached_record)
+        elif status in ("failed", "error") or (code != 10000 and code != 0):
+            err_msg = data.get("message", "") or resp.get("message", "") or f"code={code}"
+            cached_record["status"] = "failed"
+            cached_record["error"] = f"即梦生成失败: {err_msg}"
+            upsert_task_record(cached_record)
+        else:
+            # Still processing
+            cached_record["status"] = "processing"
 
         return self.send_json(HTTPStatus.OK, cached_record)
 
@@ -2772,17 +3069,36 @@ class AppHandler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _normalize_messages(data: dict) -> dict:
-        """Convert system-role messages so upstream Claude-proxies accept them.
+        """Convert system-role messages for Claude compatibility.
 
-        The peiqian.icu OpenAI-compat proxy forwards to Claude Messages API,
-        which rejects ``role: "system"`` inside the messages array.  Simply
-        hoisting to a top-level ``system`` field also fails because the proxy
-        doesn't forward unknown top-level keys.
-
-        Gemini OpenAI-compatible endpoint supports system role natively,
-        so just pass through. Remove top-level 'system' field if present.
+        Claude Messages API rejects role:"system" inside messages array.
+        Extract system messages and prepend their content to the first user message.
         """
-        # Remove top-level system if present (avoid "Unsupported field")
+        messages = data.get("messages", [])
+        if not messages:
+            return data
+
+        system_parts = []
+        non_system = []
+        for msg in messages:
+            if msg.get("role") == "system":
+                system_parts.append(msg.get("content", ""))
+            else:
+                non_system.append(msg)
+
+        if system_parts and non_system:
+            system_text = "\n\n".join(system_parts)
+            # Prepend system content to the first user message
+            if non_system[0].get("role") == "user":
+                non_system[0] = {
+                    **non_system[0],
+                    "content": f"[System Instructions]\n{system_text}\n\n[User Request]\n{non_system[0].get('content', '')}",
+                }
+            else:
+                # Insert as first user message
+                non_system.insert(0, {"role": "user", "content": system_text})
+
+        data["messages"] = non_system
         data.pop("system", None)
         return data
 

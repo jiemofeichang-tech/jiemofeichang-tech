@@ -81,7 +81,13 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { error?: string }).error || `请求失败：${res.status}`);
+  if (!res.ok) {
+    const raw = (data as Record<string, unknown>).error;
+    const msg = typeof raw === "string" ? raw
+      : (raw && typeof raw === "object" && "message" in raw) ? String((raw as { message: unknown }).message)
+      : `请求失败：${res.status}`;
+    throw new Error(msg);
+  }
   return data as T;
 }
 
@@ -441,6 +447,8 @@ export interface StyleConfig {
   language: string;
   /** 单镜头时长（秒） */
   shot_duration_sec: number;
+  /** 集数 */
+  episode_count?: number;
   /** 合成后的总风格提示词（英文，注入到所有生成请求） */
   compiled_style_prompt: string;
   /** 合成后的反面提示词（英文） */

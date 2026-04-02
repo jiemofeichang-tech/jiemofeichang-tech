@@ -13,6 +13,7 @@ export interface FilmParams {
   aspectRatio: '16:9' | '9:16' | '1:1';
   language: string;
   shotDurationSec: number;
+  episodeCount: number;
 }
 
 interface FilmParamsPanelProps {
@@ -105,6 +106,26 @@ export default function FilmParamsPanel({ value, onChange }: FilmParamsPanelProp
         <div className="flex justify-between text-[10px] text-zinc-500">
           <span>3s</span>
           <span>8s</span>
+        </div>
+      </div>
+
+      {/* 集数 */}
+      <div className="space-y-2">
+        <label className="text-xs text-zinc-400">集数</label>
+        <div className="flex gap-2">
+          {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
+            <button
+              key={n}
+              onClick={() => update({ episodeCount: n })}
+              className={`flex-1 rounded-lg px-2 py-2 text-sm font-medium transition-colors ${
+                value.episodeCount === n
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+              }`}
+            >
+              {n}集
+            </button>
+          ))}
         </div>
       </div>
 

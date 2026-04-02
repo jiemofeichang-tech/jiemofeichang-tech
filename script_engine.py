@@ -324,6 +324,15 @@ RULES:
 10. Time-of-day progression must be logical across episodes (morning → afternoon → evening)
 11. environment_anchors.key_objects: exactly 3 landmark objects per scene; these will be tracked as recurring props
 
+CRITICAL STORY STRUCTURE RULES:
+12. Each episode MUST have a UNIQUE central conflict and resolution — NO two episodes may share the same dramatic question
+13. Episodes must form a clear narrative arc: Episode 1 = setup/introduction, middle episodes = escalation/complications, final episode = climax/resolution
+14. Each episode's opening scene MUST be visually and narratively DIFFERENT from other episodes' openings — different location, different time of day, different character state
+15. Across episodes, characters must EVOLVE: their emotional state, relationships, skills, and circumstances must visibly change
+16. NEVER repeat the same scene setup across episodes (e.g., "character stands at door" cannot appear as the opening of multiple episodes)
+17. Each episode's suggested_shots must depict UNIQUE actions — if Episode 1 shows "character enters the shop", Episode 2 must NOT show the same entrance again
+18. The story must PROGRESS: new information, new challenges, new character dynamics in every episode
+
 IMPORTANT: Return ONLY valid JSON. No markdown code blocks. No explanatory text."""
 
         user_prompt = f"""Generate a {genre} production bible:
@@ -341,6 +350,14 @@ Requirements:
 - suggested_shots are lightweight — downstream code will build full image prompts by assembling character and scene templates
 - Clothing damage, environmental damage, and prop state changes must accumulate across scenes
 
+CRITICAL — Episode Differentiation:
+- Each episode MUST tell a different chapter of the story with unique conflicts and new situations
+- Episode 1: introduce characters and world. Episode 2+: escalate conflict, introduce new challenges. Final episode: climax and resolution
+- NO two episodes may open with the same scene or similar character entrance
+- Each episode's scenes must feature DIFFERENT actions, locations, or time periods from other episodes
+- Characters must show visible emotional/physical changes across episodes (e.g., growing confidence, new injuries, changed clothing)
+- suggested_shots across episodes must depict UNIQUE moments — absolutely NO recycling of the same camera setup + action combination
+
 Return JSON only."""
 
         # Prepare API request (OpenAI Chat Completions 兼容格式)
@@ -355,10 +372,9 @@ Return JSON only."""
 
         data = {
             'model': self.config.get('model', 'gemini-2.5-pro'),
-            'max_tokens': 10000,
+            'max_tokens': 16000,
             'messages': [
-                {'role': 'system', 'content': system_prompt},
-                {'role': 'user', 'content': user_prompt},
+                {'role': 'user', 'content': f"[System Instructions]\n{system_prompt}\n\n[User Request]\n{user_prompt}"},
             ]
         }
 
@@ -468,52 +484,65 @@ Return JSON only."""
                 scene['color_grading'] = anchors['color_palette']
 
         # Episodes: flatten beats.suggested_shots → scenes.shots for frontend
+        # CRITICAL: shots must follow BEAT ORDER (narrative order), not scene grouping
         for ep in script_data['episodes']:
             # Map episode_number → episode_id
             if ep.get('episode_number') and not ep.get('episode_id'):
                 ep['episode_id'] = ep['episode_number']
-            # Build scenes with shots from beats
-            if ep.get('beats') and ep.get('scenes'):
-                for ep_scene in ep['scenes']:
-                    sid = ep_scene.get('scene_id', '')
-                    # Ensure scene_ref exists (frontend uses scene_ref || scene_id)
-                    if not ep_scene.get('scene_ref'):
-                        ep_scene['scene_ref'] = sid
-                    # Derive emotion from first beat for this scene
-                    if not ep_scene.get('emotion'):
-                        for beat in ep.get('beats', []):
-                            if beat.get('scene_id') == sid and beat.get('emotion'):
-                                ep_scene['emotion'] = beat['emotion']
-                                break
-                    # Collect suggested_shots from beats belonging to this scene
-                    shots = []
-                    for beat in ep.get('beats', []):
-                        if beat.get('scene_id') == sid:
-                            for ss in beat.get('suggested_shots', []):
-                                shots.append({
-                                    'shot_type': ss.get('shot_size', 'medium'),
-                                    'subject': ', '.join(ss.get('char_refs', [])),
-                                    'action': ss.get('action', ''),
-                                    'camera_movement': ss.get('camera_movement', 'static'),
-                                    'duration': '2-4s',
-                                    'lighting_note': ss.get('lighting_shift'),
-                                })
-                    if shots and not ep_scene.get('shots'):
-                        ep_scene['shots'] = shots
-                    # Ensure dialogues array exists
-                    if not ep_scene.get('dialogues'):
-                        dlgs = []
-                        for beat in ep.get('beats', []):
-                            if beat.get('scene_id') == sid:
-                                for d in beat.get('dialogue', []):
-                                    dlgs.append({
-                                        'character': d.get('character_id', ''),
-                                        'text': d.get('text', ''),
-                                        'emotion': d.get('expression_key', ''),
-                                        'duration_hint': ''
-                                    })
-                        if dlgs:
-                            ep_scene['dialogues'] = dlgs
+
+            # Ensure scene_ref exists on all ep scenes
+            for ep_scene in ep.get('scenes', []):
+                sid = ep_scene.get('scene_id', '')
+                if not ep_scene.get('scene_ref'):
+                    ep_scene['scene_ref'] = sid
+
+            # Build shots in BEAT ORDER (narrative chronological sequence)
+            if ep.get('beats'):
+                # First: collect ALL shots in beat order into a single flat list
+                all_shots_in_order = []
+                for beat in ep.get('beats', []):
+                    beat_sid = beat.get('scene_id', '')
+                    beat_emotion = beat.get('emotion', '')
+                    for ss in beat.get('suggested_shots', []):
+                        all_shots_in_order.append({
+                            'shot_type': ss.get('shot_size', 'medium'),
+                            'subject': ', '.join(ss.get('char_refs', [])),
+                            'action': ss.get('action', ''),
+                            'camera_movement': ss.get('camera_movement', 'static'),
+                            'duration': '2-4s',
+                            'lighting_note': ss.get('lighting_shift'),
+                            'composition': ss.get('composition', ''),
+                            'optics': ss.get('focal_length', ''),
+                            'transition': ss.get('transition', ''),
+                            '_scene_id': beat_sid,
+                            '_emotion': beat_emotion,
+                            '_narrative_order': len(all_shots_in_order),
+                        })
+
+                # Create a single virtual scene that contains ALL shots in narrative order
+                # This ensures the frontend renders shots in story sequence, not scene grouping
+                narrative_scene = {
+                    'scene_id': f"ep{ep.get('episode_id', '?')}_narrative",
+                    'scene_ref': ep.get('scenes', [{}])[0].get('scene_id', 'sc_01') if ep.get('scenes') else 'sc_01',
+                    'emotion': all_shots_in_order[0].get('_emotion', '') if all_shots_in_order else '',
+                    'shots': all_shots_in_order,
+                }
+
+                # Collect dialogues from all beats in order
+                dlgs = []
+                for beat in ep.get('beats', []):
+                    for d in beat.get('dialogue', []):
+                        dlgs.append({
+                            'character': d.get('character_id', ''),
+                            'text': d.get('text', ''),
+                            'emotion': d.get('expression_key', ''),
+                            'duration_hint': ''
+                        })
+                if dlgs:
+                    narrative_scene['dialogues'] = dlgs
+
+                # Replace episode scenes with single narrative-ordered scene
+                ep['scenes'] = [narrative_scene]
 
         # Ensure top-level fields frontend expects
         if not script_data.get('genre'):

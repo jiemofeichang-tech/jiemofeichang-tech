@@ -303,6 +303,15 @@ export default function StoryboardGrid({
   onUpdatePrompt,
   selectedShotId,
 }: StoryboardGridProps) {
+  const [activeEpIdx, setActiveEpIdx] = useState(0);
+
+  // 如果当前选中的 shot 不在 activeEp 中，自动切换到对应集
+  useEffect(() => {
+    if (!selectedShotId) return;
+    const idx = episodes.findIndex((ep) => ep.shots.some((s) => s.id === selectedShotId));
+    if (idx >= 0 && idx !== activeEpIdx) setActiveEpIdx(idx);
+  }, [selectedShotId, episodes, activeEpIdx]);
+
   if (episodes.length === 0) {
     return (
       <CanvasBlock title="分镜图" status="pending">
@@ -311,39 +320,65 @@ export default function StoryboardGrid({
     );
   }
 
-  return (
-    <>
-      {episodes.map((ep) => {
-        const total = ep.shots.length;
-        const done = ep.shots.filter((s) => s.storyboard_image).length;
-        const approved = ep.shots.filter((s) => s.approved === true).length;
+  const ep = episodes[activeEpIdx] || episodes[0];
+  const total = ep.shots.length;
+  const done = ep.shots.filter((s) => s.storyboard_image).length;
+  const approved = ep.shots.filter((s) => s.approved === true).length;
 
-        return (
-          <CanvasBlock
-            key={ep.id}
-            title={`分镜: ${ep.title}`}
-            status={done === total && total > 0 ? "done" : done > 0 ? "generating" : "pending"}
-          >
-            <ProgressBar done={done} approved={approved} total={total} />
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingBottom: 8 }}>
-              {ep.shots.map((shot, i) => (
-                <ShotCard
-                  key={shot.id}
-                  shot={shot}
-                  index={i}
-                  onEdit={() => onEditShot(ep.id, shot.id)}
-                  onRegenerate={() => onRegenerateShot(ep.id, shot.id)}
-                  onApprove={onApproveShot ? () => onApproveShot(ep.id, shot.id) : undefined}
-                  onUpdatePrompt={
-                    onUpdatePrompt ? (prompt) => onUpdatePrompt(ep.id, shot.id, prompt) : undefined
-                  }
-                  isSelected={selectedShotId === shot.id}
-                />
-              ))}
-            </div>
-          </CanvasBlock>
-        );
-      })}
-    </>
+  return (
+    <CanvasBlock
+      title={`分镜: ${ep.title}`}
+      status={done === total && total > 0 ? "done" : done > 0 ? "generating" : "pending"}
+    >
+      {/* 集数切换按钮 */}
+      {episodes.length > 1 && (
+        <div style={{ display: "flex", gap: 4, marginBottom: 10, flexWrap: "wrap" }}>
+          {episodes.map((e, idx) => {
+            const epDone = e.shots.filter((s) => s.storyboard_image).length;
+            const epTotal = e.shots.length;
+            const isActive = idx === activeEpIdx;
+            return (
+              <button
+                key={e.id}
+                onClick={() => setActiveEpIdx(idx)}
+                style={{
+                  padding: "4px 12px",
+                  borderRadius: 5,
+                  border: isActive ? "1px solid #7c3aed" : "1px solid #444",
+                  background: isActive ? "#7c3aed22" : "transparent",
+                  color: isActive ? "#c084fc" : "#888",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                EP{idx + 1}: {e.title?.slice(0, 8) || `第${idx + 1}集`}
+                <span style={{ marginLeft: 4, fontSize: 10, color: epDone === epTotal ? "#4ade80" : "#666" }}>
+                  {epDone}/{epTotal}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <ProgressBar done={done} approved={approved} total={total} />
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingBottom: 8 }}>
+        {ep.shots.map((shot, i) => (
+          <ShotCard
+            key={shot.id}
+            shot={shot}
+            index={i}
+            onEdit={() => onEditShot(ep.id, shot.id)}
+            onRegenerate={() => onRegenerateShot(ep.id, shot.id)}
+            onApprove={onApproveShot ? () => onApproveShot(ep.id, shot.id) : undefined}
+            onUpdatePrompt={
+              onUpdatePrompt ? (prompt) => onUpdatePrompt(ep.id, shot.id, prompt) : undefined
+            }
+            isSelected={selectedShotId === shot.id}
+          />
+        ))}
+      </div>
+    </CanvasBlock>
   );
 }

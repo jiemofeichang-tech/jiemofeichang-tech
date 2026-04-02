@@ -1,6 +1,7 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { ScriptAnalysis, WfCharacter } from "@/lib/api";
+import { wfAiChat } from "@/lib/api";
 
 type AnalysisChar = ScriptAnalysis["characters"][0];
 
@@ -42,6 +43,45 @@ export default function EditCharacterForm({
   const [designPrompt, setDesignPrompt] = useState(
     analysisChar?.visual_prompt_template || analysisChar?.three_view_prompts?.front || "",
   );
+  const [designPromptCn, setDesignPromptCn] = useState("");
+  const [translating, setTranslating] = useState(false);
+  const translateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 中文 → 英文自动翻译（防抖 10 秒）
+  const translateToEnglish = useCallback(async (cnText: string) => {
+    if (!cnText.trim()) return;
+    setTranslating(true);
+    try {
+      // 获取当前模型配置
+      let chatModel = "claude-opus-4-6";
+      try {
+        const cfg = await fetch("/api/config", { credentials: "include" }).then((r) => r.json());
+        chatModel = cfg?.aiConfig?.chatModel || chatModel;
+      } catch { /* use default */ }
+
+      const resp = await wfAiChat({
+        model: chatModel,
+        messages: [
+          {
+            role: "user",
+            content: `You are a professional translator for AI image generation prompts. Translate the following Chinese character description into English. Output ONLY the English prompt, no explanations. Keep it as a comma-separated keyword/phrase list suitable for image generation. Preserve all visual details (face, hair, body, clothing, accessories, colors).\n\nChinese text:\n${cnText}`,
+          },
+        ],
+      });
+      const translated = resp.choices?.[0]?.message?.content?.trim();
+      if (translated) setDesignPrompt(translated);
+    } catch (e) {
+      console.warn("[translate] failed:", e);
+    } finally {
+      setTranslating(false);
+    }
+  }, []);
+
+  const handleCnChange = useCallback((value: string) => {
+    setDesignPromptCn(value);
+    if (translateTimerRef.current) clearTimeout(translateTimerRef.current);
+    translateTimerRef.current = setTimeout(() => translateToEnglish(value), 10000);
+  }, [translateToEnglish]);
 
   useEffect(() => {
     setName(character.name);
@@ -49,6 +89,7 @@ export default function EditCharacterForm({
     setPersonality(analysisChar?.personality || "");
     setAppearance(typeof analysisChar?.appearance === "string" ? analysisChar.appearance : JSON.stringify(analysisChar?.appearance || "", null, 2));
     setDesignPrompt(analysisChar?.visual_prompt_template || analysisChar?.three_view_prompts?.front || "");
+    setDesignPromptCn("");
   }, [character.id, analysisChar]);
 
   const buildPatch = () => ({
@@ -74,6 +115,18 @@ export default function EditCharacterForm({
       </Field>
       <Field label="外貌描述 (英文)">
         <textarea value={appearance} onChange={(e) => setAppearance(e.target.value)} style={{ ...textareaStyle, minHeight: 60 }} placeholder="English appearance description..." />
+      </Field>
+
+      <Field label="角色设定图提示词 (中文)">
+        <textarea
+          value={designPromptCn}
+          onChange={(e) => handleCnChange(e.target.value)}
+          style={{ ...textareaStyle, minHeight: 60 }}
+          placeholder="用中文描述角色外貌、服装、特征，停止输入 10 秒后自动翻译为英文..."
+        />
+        {translating && (
+          <div style={{ fontSize: 10, color: "#c084fc", marginTop: 4 }}>翻译中...</div>
+        )}
       </Field>
 
       <Field label="角色设定图提示词 (英文)">

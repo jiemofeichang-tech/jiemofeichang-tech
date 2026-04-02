@@ -27,6 +27,7 @@ const DEFAULT_FILM_PARAMS: FilmParams = {
   aspectRatio: '9:16' as const,
   language: '中文',
   shotDurationSec: 5,
+  episodeCount: 3,
 };
 
 // --- Step progress indicator ---
@@ -141,6 +142,7 @@ export default function StyleConfigStep({ initialConfig, scriptContent, onSave }
           aspectRatio: initialConfig.aspect_ratio,
           language: initialConfig.language,
           shotDurationSec: initialConfig.shot_duration_sec,
+          episodeCount: initialConfig.episode_count || 3,
         }
       : DEFAULT_FILM_PARAMS,
   );
@@ -259,6 +261,7 @@ export default function StyleConfigStep({ initialConfig, scriptContent, onSave }
       duration_sec: filmParams.durationSec,
       language: filmParams.language,
       shot_duration_sec: filmParams.shotDurationSec,
+      episode_count: filmParams.episodeCount,
       compiled_style_prompt: activeStylePrompt,
       compiled_negative_prompt: activeNegativePrompt,
       prompt_manually_edited: manuallyEdited,
