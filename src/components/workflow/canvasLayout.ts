@@ -71,11 +71,11 @@ export interface LayoutInput {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_HEIGHTS: Record<string, number> = {
-  script: 280,
-  "style-config": 160,
+  script: 500,       // 包含内嵌的风格配置
+  "style-config": 0, // 已合并到 script
   "generate-assets": 120,
   "asset-lock": 60,
-  character: 320,
+  character: 580,    // 含三视图图片
   storyboard: 300,
   video: 300,
   post: 260,
@@ -138,31 +138,9 @@ export function computeLayout(input: LayoutInput): LayoutBlock[] {
     cursorY += SECTION_GAP - CARD_GAP;
   }
 
-  // ── 风格配置（剧本分析之后、角色设计之前） ──
-  if (isLocked("style")) { /* 跳过风格配置 */ }
-  else if (input.showStyleConfig) {
-    const scW = w("style-config", WIDE_WIDTH, custom);
-    const scH = h("style-config", "style-config", measured, custom);
-    blocks.push({
-      key: "style-config",
-      type: "style-config",
-      x: PADDING,
-      y: cursorY,
-      width: scW,
-      height: scH,
-    });
-    cursorY += scH + CARD_GAP;
+  // ── 风格配置已合并到 script block 内，不再单独占位 ──
 
-    if (isReview("style")) {
-      const confirmH = h("stage-confirm-style", "stage-confirm", measured, custom);
-      blocks.push({ key: "stage-confirm-style", type: "stage-confirm" as BlockType, x: PADDING, y: cursorY, width: scW, height: confirmH });
-      cursorY += confirmH + CARD_GAP;
-    }
-
-    cursorY += SECTION_GAP - CARD_GAP;
-  }
-
-  // ── 角色设计（风格配置之后） ──
+  // ── 角色设计 ──
   if (isLocked("character")) { /* 跳过角色设计 */ }
   else if (input.characterIds.length > 0 || input.showGenerateAssets) {
     blocks.push({

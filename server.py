@@ -3124,7 +3124,7 @@ class AppHandler(BaseHTTPRequestHandler):
         req = request.Request(STATE["ai_chat_base"], data=body, headers=headers, method="POST")
         opener = self._make_opener(STATE["ai_chat_base"])
         try:
-            with opener.open(req, timeout=300) as response:
+            with opener.open(req, timeout=600) as response:
                 raw = response.read()
                 status = response.status
         except error.HTTPError as exc:

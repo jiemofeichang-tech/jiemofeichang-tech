@@ -1633,40 +1633,48 @@ async function fillMissingVisualPrompts(forceAll = false) {
   let filled = 0;
   const prevEpSummaries: string[] = [];
 
+  const BATCH_SIZE = 10;
+
   for (const { epId, epTitle, items } of byEpisode) {
-    const keyMap = new Map<string, WfShot>();
-    const shotLines: string[] = [];
-    let shotIdx = 0;
-    for (const { shot } of items) {
-      shotIdx++;
-      const key = `${shot.id}`;
-      keyMap.set(key, shot);
-      shotLines.push(`${key} [镜头${shotIdx}]: ${shot.shot_type} | 主体:${shot.raw_description} | 动作:${shot.action || ""} | 运镜:${shot.camera_movement} | 情绪:${shot.emotion || ""}`);
-    }
+    // 分批处理
+    for (let batchStart = 0; batchStart < items.length; batchStart += BATCH_SIZE) {
+      const batch = items.slice(batchStart, batchStart + BATCH_SIZE);
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, items.length);
 
-    const prevContext = prevEpSummaries.length > 0
-      ? `\n\n前面已完成的集数摘要（本集必须与这些完全不同）:\n${prevEpSummaries.join("\n")}\n`
-      : "";
+      const keyMap = new Map<string, WfShot>();
+      const shotLines: string[] = [];
+      let shotIdx = batchStart;
+      for (const { shot } of batch) {
+        shotIdx++;
+        const key = `${shot.id}`;
+        keyMap.set(key, shot);
+        shotLines.push(`${key} [镜头${shotIdx}]: ${shot.shot_type} | 主体:${shot.raw_description} | 动作:${shot.action?.slice(0, 100) || ""} | 运镜:${shot.camera_movement} | 情绪:${shot.emotion || ""}`);
+      }
 
-    const systemPrompt = `你是AI分镜提示词专家。为第"${epTitle}"集的 ${items.length} 个镜头按叙事顺序生成英文 visual_prompt。只输出JSON，不要代码块。${prevContext}
+      addSystemMessage(`${epTitle}: 生成提示词 (${batchStart + 1}-${batchEnd}/${items.length})...`);
+
+      const prevContext = prevEpSummaries.length > 0
+        ? `\n\n前面已完成的集数摘要（本集必须与这些完全不同）:\n${prevEpSummaries.join("\n")}\n`
+        : "";
+
+      const systemPrompt = `你是AI分镜提示词专家。为以下 ${batch.length} 个镜头生成英文 visual_prompt。只输出JSON，不要代码块。${prevContext}
 
 关键要求：
 1. 每个 visual_prompt 约80-120个英文单词
-2. 镜头之间必须体现叙事递进：动作、情绪、环境细节随剧情推进变化，严禁重复
-3. 同一角色在不同镜头中外貌描述必须完全一致
-4. 每个镜头必须有明确的角色动作（不能只有站立/静止）
-5. 本集画面必须与前面集数完全不同——不同的角色动作、不同的场景状态
+2. 镜头之间必须体现叙事递进，严禁重复
+3. 同一角色外貌描述必须完全一致
+4. 每个镜头必须有明确的角色动作
 
 格式：[光学参数] + [景别构图] + [主体外貌+精确动作] + [环境背景] + [灯光色彩] + [摄影机运动] + ${styleKeywords}
 
 key 必须与输入完全一致。
 输出格式: {"镜头key1":"english prompt...","镜头key2":"english prompt..."}`;
 
-    try {
-      const result = await wfAiChatStream(
-        {
-          model: getState().aiConfig.chatModel,
-          messages: [
+      try {
+        const result = await wfAiChatStream(
+          {
+            model: getState().aiConfig.chatModel,
+            messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: `镜头列表:\n${shotLines.join("\n")}` },
           ],
@@ -1677,37 +1685,57 @@ key 必须与输入完全一致。
 
       const jsonStr = extractJson(result);
       const prompts = JSON.parse(jsonStr) as Record<string, string>;
-      let epFilled = 0;
+      const aiKeys = Object.keys(prompts);
+      let batchFilled = 0;
 
-      for (const [key, shot] of keyMap) {
+      const keys = [...keyMap.keys()];
+      for (let ki = 0; ki < keys.length; ki++) {
+        const key = keys[ki];
+        const shot = keyMap.get(key)!;
+        let promptValue: string | undefined;
+
+        // 1. 精确匹配
         if (prompts[key]) {
-          // 找到对应的 episodeId 和 shotId 更新
+          promptValue = prompts[key];
+        } else {
+          // 2. 模糊匹配 shot 编号
+          const shotNum = key.match(/shot_?(\d+)/)?.[1] || key.match(/_(\d+)$/)?.[1];
+          if (shotNum) {
+            const fuzzyKey = aiKeys.find((k) => k.includes(`shot${shotNum}`) || k.includes(`shot_${shotNum}`) || k.endsWith(`_${shotNum}`));
+            if (fuzzyKey) promptValue = prompts[fuzzyKey];
+          }
+          // 3. 顺序兜底
+          if (!promptValue && ki < aiKeys.length) {
+            promptValue = prompts[aiKeys[ki]];
+          }
+        }
+
+        if (promptValue) {
           const ep = project.episodes.find((e) => e.id === epId);
           if (ep) {
             const idx = ep.shots.findIndex((s) => s.id === shot.id);
             if (idx !== -1) {
-              ep.shots[idx] = { ...ep.shots[idx], visual_prompt: prompts[key], prompt: prompts[key] };
-              epFilled++;
+              ep.shots[idx] = { ...ep.shots[idx], visual_prompt: promptValue, prompt: promptValue };
+              batchFilled++;
               filled++;
             }
           }
         }
       }
 
-      // 批量更新 store 状态
       setState({ project: { ...getState().project! } });
 
-      if (epFilled > 0) {
-        addSystemMessage(`${epTitle}: ${forceAll ? "重新生成" : "补填"}了 ${epFilled} 个镜头提示词`);
-        // 收集本集摘要给下一集参考
-        const epActions = items.map((it) => it.shot.action || it.shot.raw_description).filter(Boolean).slice(0, 5);
-        prevEpSummaries.push(`${epTitle}: ${epActions.join("; ")}`);
-      } else {
-        addSystemMessage(`${epTitle}: AI 返回 key 不匹配，样本: ${Object.keys(prompts).slice(0, 2).join(", ")}`);
+      if (batchFilled > 0) {
+        addSystemMessage(`${epTitle}: ${forceAll ? "重新生成" : "补填"}了 ${batchFilled} 个提示词 (${batchStart + 1}-${batchEnd})`);
       }
     } catch (e) {
-      addSystemMessage(`${epTitle} 失败: ${(e as Error).message}`);
+      addSystemMessage(`${epTitle} batch ${batchStart + 1}-${batchEnd} 失败: ${(e as Error).message}`);
     }
+    } // 关闭分批循环
+
+    // 收集本集摘要
+    const epActions = items.map((it) => it.shot.action || it.shot.raw_description).filter(Boolean).slice(0, 5);
+    if (epActions.length) prevEpSummaries.push(`${epTitle}: ${epActions.join("; ")}`);
   }
 
   // 持久化
@@ -1740,7 +1768,7 @@ async function regenerateSingleVideo(episodeId: string, shotId: string) {
     model: "veo-3.1",
     resolution: "720p",
     ratio: "9:16",
-    duration: Math.min(Math.max(shot.duration, 4), 10),
+    duration: Math.min(Math.max(shot.duration, 5), 8),
     cameraPreset,
     motionSpeed: isDialogue ? "steady" : motionSpeed,
     generateAudio: false,
@@ -1838,7 +1866,7 @@ async function generateVideos() {
         model: "veo-3.1",
         resolution: "720p",
         ratio: "9:16",
-        duration: Math.min(Math.max(shot.duration, 4), 10),
+        duration: Math.min(Math.max(shot.duration, 5), 8),
         cameraPreset,
         motionSpeed: isDialogue ? "steady" : motionSpeed,
         generateAudio: false,

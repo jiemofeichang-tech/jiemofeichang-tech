@@ -12,6 +12,7 @@
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@xyflow/react": "^12.10.2",
     "next": "^16.2.1",
     "playwright": "^1.58.2",
     "postcss": "^8.5.8",

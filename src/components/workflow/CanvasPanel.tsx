@@ -489,7 +489,7 @@ export default function CanvasPanel() {
         const b = findBlock("script");
         if (!b) return null;
         return (
-          <div style={{ position: "absolute", left: b.x, top: b.y }}>
+          <div ref={makeResizeRef("script")} style={{ position: "absolute", left: b.x, top: b.y }}>
             {/* AI 模型切换 */}
             <div style={{ display: "flex", gap: 4, marginBottom: 6, flexWrap: "wrap", alignItems: "center", position: "relative", zIndex: 10 }}>
               <span style={{ fontSize: 10, color: "#666", marginRight: 4 }}>AI模型:</span>
@@ -589,7 +589,7 @@ export default function CanvasPanel() {
             if (!b) return null;
             const isLocked = project.status === "assets_locked";
             return (
-              <div key={char.id} style={{ position: "absolute", left: b.x, top: b.y }}>
+              <div key={char.id} ref={makeResizeRef(`character-${char.id}`)} style={{ position: "absolute", left: b.x, top: b.y }}>
                 <ResizableWrapper blockKey={`character-${char.id}`} initialWidth={b.width} onSizeChange={handleSizeChange} onPositionChange={handlePositionChange}>
                 <CharacterCard
                   character={char}
