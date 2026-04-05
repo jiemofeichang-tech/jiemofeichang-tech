@@ -1,11 +1,14 @@
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
-import type { StyleConfig } from '@/lib/api';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
+import type { StyleConfig, StyleMatchAnalysis } from '@/lib/api';
+import { wfUploadAsset } from '@/lib/api';
 import {
   compileStylePrompt,
   detectStyleConflict,
   calcShotCount,
+  analyzeStyleReferenceImages,
+  appendStyleReferenceDescriptors,
 } from '@/lib/prompt-system';
 import { styleItems } from '@/lib/styles-data';
 import StoryTypeSelector from './StoryTypeSelector';
@@ -18,6 +21,8 @@ interface StyleConfigStepProps {
   initialConfig: StyleConfig | null;
   /** 剧本内容（用于风格冲突检测） */
   scriptContent: string;
+  /** 项目 ID（用于上传参考图资产） */
+  projectId: string;
   /** 保存回调 */
   onSave: (config: StyleConfig) => void;
 }
@@ -132,9 +137,22 @@ function ConfigSummary({
   );
 }
 
-export default function StyleConfigStep({ initialConfig, scriptContent, onSave }: StyleConfigStepProps) {
+export default function StyleConfigStep({ initialConfig, scriptContent, projectId, onSave }: StyleConfigStepProps) {
   // --- State ---
   const [storyType, setStoryType] = useState(initialConfig?.story_type || 'drama');
+
+  // 参考图状态
+  const MAX_REF_IMAGES = 3;
+  const refFileInputRef = useRef<HTMLInputElement>(null);
+  const [refImages, setRefImages] = useState<{ id: string; preview: string; url?: string; name: string }[]>(
+    () => (initialConfig?.style_reference_images || []).map((url, i) => ({ id: `ref-${i}`, preview: url, url, name: `参考图 ${i + 1}` })),
+  );
+  const [refUploading, setRefUploading] = useState(false);
+  const [styleAnalysis, setStyleAnalysis] = useState<StyleMatchAnalysis | null>(
+    initialConfig?.style_match_analysis || null,
+  );
+  const [analyzing, setAnalyzing] = useState(false);
+  const [refDragOver, setRefDragOver] = useState(false);
   const [filmParams, setFilmParams] = useState<FilmParams>(
     initialConfig
       ? {
@@ -248,11 +266,78 @@ export default function StyleConfigStep({ initialConfig, scriptContent, onSave }
     setCustomNegativePrompt('');
   }, []);
 
+  // --- 参考图处理 ---
+  const addRefFiles = useCallback(async (files: File[]) => {
+    const available = MAX_REF_IMAGES - refImages.length;
+    const toAdd = Array.from(files).slice(0, available);
+    if (toAdd.length === 0) return;
+
+    setRefUploading(true);
+    const newImages: typeof refImages = [];
+    for (const file of toAdd) {
+      if (file.size > 5 * 1024 * 1024) continue;
+      if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) continue;
+
+      const base64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      });
+
+      try {
+        const result = await wfUploadAsset(projectId, base64, `style_ref_${Date.now()}_${file.name}`);
+        newImages.push({ id: `ref-${Date.now()}-${file.name}`, preview: base64, url: result.asset_url, name: file.name });
+      } catch {
+        // 上传失败则用 base64 作为 fallback preview
+        newImages.push({ id: `ref-${Date.now()}-${file.name}`, preview: base64, name: file.name });
+      }
+    }
+    setRefImages((prev) => [...prev, ...newImages]);
+    setRefUploading(false);
+
+    // 自动触发分析（当有已上传成功的图片时）
+    const allUrls = [...refImages, ...newImages].map((img) => img.url).filter(Boolean) as string[];
+    if (allUrls.length > 0) {
+      setAnalyzing(true);
+      try {
+        const analysis = await analyzeStyleReferenceImages(allUrls);
+        setStyleAnalysis(analysis);
+      } catch {
+        setStyleAnalysis(null);
+      }
+      setAnalyzing(false);
+    }
+  }, [refImages, projectId]);
+
+  const removeRefImage = useCallback((id: string) => {
+    setRefImages((prev) => prev.filter((img) => img.id !== id));
+    // 清除分析结果（图片变了需要重新分析）
+    setStyleAnalysis(null);
+  }, []);
+
+  const handleRefDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setRefDragOver(false);
+    if (e.dataTransfer.files.length) addRefFiles(Array.from(e.dataTransfer.files));
+  }, [addRefFiles]);
+
+  const handleRefFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.length) addRefFiles(Array.from(e.target.files));
+    e.target.value = '';
+  }, [addRefFiles]);
+
+  // 合并参考图风格到提示词
+  const finalStylePrompt = useMemo(() => {
+    if (!styleAnalysis) return activeStylePrompt;
+    return appendStyleReferenceDescriptors(activeStylePrompt, styleAnalysis);
+  }, [activeStylePrompt, styleAnalysis]);
+
   const handleSave = useCallback(() => {
     if (!storyType || !artSubstyle) return;
     // 自定义风格模式下提示词不能为空
     if (isCustomStyle && !customPromptInput.trim()) return;
 
+    const refUrls = refImages.map((img) => img.url).filter(Boolean) as string[];
     const config: StyleConfig = {
       story_type: storyType,
       art_style_category: isCustomStyle ? '自定义' : artStyleCategory,
@@ -262,16 +347,19 @@ export default function StyleConfigStep({ initialConfig, scriptContent, onSave }
       language: filmParams.language,
       shot_duration_sec: filmParams.shotDurationSec,
       episode_count: filmParams.episodeCount,
-      compiled_style_prompt: activeStylePrompt,
+      compiled_style_prompt: finalStylePrompt,
       compiled_negative_prompt: activeNegativePrompt,
       prompt_manually_edited: manuallyEdited,
       prompt_edit_history: editHistory,
+      style_reference_images: refUrls.length > 0 ? refUrls : undefined,
+      style_match_analysis: styleAnalysis || undefined,
     };
 
     onSave(config);
   }, [
     storyType, artSubstyle, artStyleCategory, filmParams, isCustomStyle, customPromptInput,
-    activeStylePrompt, activeNegativePrompt, manuallyEdited, editHistory, onSave,
+    finalStylePrompt, activeNegativePrompt, manuallyEdited, editHistory, onSave,
+    refImages, styleAnalysis,
   ]);
 
   // --- Selected style info ---
@@ -427,6 +515,161 @@ export default function StyleConfigStep({ initialConfig, scriptContent, onSave }
         )}
       </div>
 
+      {/* 风格参考图上传 */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-zinc-300">风格参考图</h3>
+          <span className="text-[10px] text-zinc-500">可选 · 最多 {MAX_REF_IMAGES} 张</span>
+        </div>
+        <p className="text-xs text-zinc-500">
+          上传参考图片，系统会提取色彩、构图和风格特征，融合到生成结果中
+        </p>
+
+        {/* 已上传的缩略图 */}
+        {refImages.length > 0 && (
+          <div className="flex gap-3">
+            {refImages.map((img) => (
+              <div key={img.id} className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-800">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={img.preview} alt={img.name} className="h-full w-full object-cover" />
+                {!img.url && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                    <svg className="h-4 w-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  </div>
+                )}
+                <button
+                  onClick={() => removeRefImage(img.id)}
+                  className="absolute -right-1 -top-1 hidden h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white shadow group-hover:flex"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 拖拽上传区 */}
+        {refImages.length < MAX_REF_IMAGES && (
+          <div
+            onDragOver={(e) => { e.preventDefault(); setRefDragOver(true); }}
+            onDragLeave={() => setRefDragOver(false)}
+            onDrop={handleRefDrop}
+            onClick={() => refFileInputRef.current?.click()}
+            className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-6 text-xs transition-all ${
+              refDragOver
+                ? 'border-purple-500 bg-purple-500/10 text-purple-400'
+                : 'border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-400'
+            }`}
+          >
+            {refUploading ? (
+              <>
+                <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                上传中...
+              </>
+            ) : (
+              <>
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                </svg>
+                拖拽或点击上传参考图 · PNG/JPEG/WebP · 最大5MB
+              </>
+            )}
+          </div>
+        )}
+        <input
+          ref={refFileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          multiple
+          className="hidden"
+          onChange={handleRefFileChange}
+        />
+
+        {/* 风格匹配度分析结果 */}
+        {analyzing && (
+          <div className="flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-3">
+            <svg className="h-4 w-4 animate-spin text-purple-400" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span className="text-xs text-zinc-400">正在分析参考图风格特征...</span>
+          </div>
+        )}
+
+        {styleAnalysis && !analyzing && (
+          <div className="space-y-3 rounded-xl border border-purple-600/30 bg-zinc-800/60 p-4">
+            {/* 匹配度进度条 */}
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-zinc-300">风格匹配度</span>
+              <div className="flex-1">
+                <div className="h-2 overflow-hidden rounded-full bg-zinc-700">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-purple-500 to-purple-400 transition-all"
+                    style={{ width: `${Math.round(styleAnalysis.confidence * 100)}%` }}
+                  />
+                </div>
+              </div>
+              <span className="text-xs font-bold text-purple-400">{Math.round(styleAnalysis.confidence * 100)}%</span>
+            </div>
+
+            {/* 色彩提取 */}
+            {styleAnalysis.color_palette.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-medium text-zinc-500">提取色彩</span>
+                <div className="flex gap-1.5">
+                  {styleAnalysis.color_palette.map((color, i) => (
+                    <div
+                      key={i}
+                      className="h-6 w-6 rounded-md border border-zinc-600 shadow-sm"
+                      style={{ backgroundColor: color }}
+                      title={color}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 构图风格 */}
+            {styleAnalysis.composition_style && (
+              <div className="space-y-1">
+                <span className="text-[10px] font-medium text-zinc-500">构图风格</span>
+                <p className="text-xs text-zinc-300">{styleAnalysis.composition_style}</p>
+              </div>
+            )}
+
+            {/* 氛围关键词 */}
+            {styleAnalysis.mood_keywords.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-medium text-zinc-500">氛围</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {styleAnalysis.mood_keywords.map((kw, i) => (
+                    <span key={i} className="rounded-full bg-purple-600/20 px-2.5 py-0.5 text-[10px] font-medium text-purple-300">
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 风格描述 */}
+            {styleAnalysis.style_descriptors && (
+              <div className="space-y-1">
+                <span className="text-[10px] font-medium text-zinc-500">提取的风格描述（已注入提示词）</span>
+                <p className="rounded-lg bg-zinc-900/60 px-3 py-2 text-[11px] leading-relaxed text-zinc-400">
+                  {styleAnalysis.style_descriptors}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Conflict warning (elevated to top level for visibility) */}
       {conflictWarning && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-600/40 bg-amber-900/20 px-4 py-3">
@@ -443,7 +686,7 @@ export default function StyleConfigStep({ initialConfig, scriptContent, onSave }
       {/* Step 4: Prompt preview / editor (自定义模式下不显示，因为用户已直接输入提示词) */}
       {artSubstyle && !isCustomStyle && (
         <PromptEditor
-          stylePrompt={activeStylePrompt}
+          stylePrompt={finalStylePrompt}
           negativePrompt={activeNegativePrompt}
           manuallyEdited={manuallyEdited}
           conflictWarning={null} // conflict warning is shown above now
@@ -458,7 +701,7 @@ export default function StyleConfigStep({ initialConfig, scriptContent, onSave }
           storyType={storyType}
           artSubstyle={artSubstyle}
           filmParams={filmParams}
-          activeStylePrompt={activeStylePrompt}
+          activeStylePrompt={finalStylePrompt}
         />
       )}
 

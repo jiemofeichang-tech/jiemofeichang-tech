@@ -66,7 +66,7 @@ GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 # 出站 HTTP 代理（zlhub 需要通过本地代理访问）
 OUTBOUND_PROXY = os.environ.get("OUTBOUND_PROXY", "http://127.0.0.1:7897")
 CORS_ORIGIN = os.environ.get("CORS_ORIGIN", "http://127.0.0.1:3001")
-CORS_ORIGINS = {CORS_ORIGIN, "http://localhost:3001", "http://127.0.0.1:3001"}
+CORS_ORIGINS = {CORS_ORIGIN, "http://localhost:3001", "http://127.0.0.1:3001", "http://myapp.test:3001"}
 STATIC_DIR = Path(__file__).resolve().parent
 INDEX_FILE = STATIC_DIR / "index.html"
 APP_JS_FILE = STATIC_DIR / "app.js"
@@ -1730,6 +1730,29 @@ class AppHandler(BaseHTTPRequestHandler):
         if img_job_match:
             return self.get_image_job_status(img_job_match.group(1))
 
+        # Grid generator job status — no auth needed (job_id is an unguessable UUID)
+        grid_job_match = _re_mod.match(r"^/api/grid/job/([^/]+)$", path)
+        if grid_job_match:
+            return self._handle_grid_job_status(grid_job_match.group(1))
+
+        # Scene 360 job status — no auth needed (job_id is unguessable UUID)
+        scene360_job_match = _re_mod.match(r"^/api/grid/scene360/job/([^/]+)$", path)
+        if scene360_job_match:
+            return self._handle_scene360_job_status(scene360_job_match.group(1))
+
+        # Scene 360 asset serving (reuses grid assets path)
+        # Already handled by grid_asset_match below
+
+        # Storyboard job status
+        sb_job_match = _re_mod.match(r"^/api/grid/storyboard/job/([^/]+)$", path)
+        if sb_job_match:
+            return self._handle_storyboard_job_status(sb_job_match.group(1))
+
+        # Grid generator asset serving
+        grid_asset_match = _re_mod.match(r"^/api/grid/assets/([^/]+)/([^/]+)$", path)
+        if grid_asset_match:
+            return self._serve_grid_asset(grid_asset_match.group(1), grid_asset_match.group(2))
+
         # Auth check for all other API routes
         if not self.require_auth():
             return
@@ -2155,6 +2178,14 @@ class AppHandler(BaseHTTPRequestHandler):
         if path == "/api/ai/chat/stream":
             return self.proxy_ai_chat_stream()
 
+        # Scene 360 routes — skip auth (direct backend calls from frontend)
+        if path == "/api/grid/scene360/analyze":
+            return self._handle_scene360_analyze()
+        if path == "/api/grid/scene360/generate":
+            return self._handle_scene360_generate()
+        if path == "/api/grid/scene360/regenerate":
+            return self._handle_scene360_regenerate()
+
         # Auth check for all other API routes
         if not self.require_auth():
             return
@@ -2183,6 +2214,17 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.create_project()
         if path == "/api/ai/image":
             return self.proxy_ai_image()
+        if path == "/api/grid/generate":
+            return self._handle_grid_generate()
+        if path == "/api/grid/regenerate":
+            return self._handle_grid_regenerate()
+        if path == "/api/grid/storyboard/analyze":
+            return self._handle_storyboard_analyze()
+        if path == "/api/grid/storyboard/generate":
+            return self._handle_storyboard_generate()
+        if path == "/api/grid/storyboard/regenerate":
+            return self._handle_storyboard_regenerate()
+        # scene360 routes moved before auth check
 
         import re
         render_match = re.match(r"^/api/projects/([^/]+)/render$", path)
@@ -3108,36 +3150,129 @@ class AppHandler(BaseHTTPRequestHandler):
             data = self.read_json()
         except ValueError:
             return
-        api_key = get_ai_chat_key()
-        if not api_key:
-            return self.send_error_json(HTTPStatus.BAD_REQUEST, "还没有设置 API Key")
 
-        # Normalize: extract system messages to top-level param
-        data = self._normalize_messages(data)
-        # Ensure stream is off
-        data["stream"] = False
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        req = request.Request(STATE["ai_chat_base"], data=body, headers=headers, method="POST")
-        opener = self._make_opener(STATE["ai_chat_base"])
         try:
-            with opener.open(req, timeout=600) as response:
-                raw = response.read()
-                status = response.status
+            # 如果请求的 model 是 gemini 系列，走 Gemini generateContent 路径
+            req_model = data.get("model", "")
+            if req_model.startswith("gemini-") and _is_gemini_mode():
+                return self._proxy_ai_chat_gemini(data)
+
+            api_key = get_ai_chat_key()
+            if not api_key:
+                return self.send_error_json(HTTPStatus.BAD_REQUEST, "还没有设置 API Key")
+
+            data["stream"] = False
+            body_str = json.dumps(data, ensure_ascii=False)
+            target_url = STATE["ai_chat_base"]
+            print(f"[ai-chat] → {target_url} model={data.get('model')} body_len={len(body_str)}", flush=True)
+
+            # 使用 curl 子进程发送请求（urllib 在代理+大请求时不稳定）
+            import subprocess as _sp, tempfile as _tf
+            body_bytes = body_str.encode("utf-8")
+            curl_cmd = ["curl", "-s", "-w", "\n__HTTP_CODE__:%{http_code}", "-X", "POST", target_url,
+                        "-H", "Content-Type: application/json",
+                        "-H", f"Authorization: Bearer {api_key}",
+                        "-d", "@-",
+                        "--max-time", "600"]
+            if target_url.startswith("https://"):
+                curl_cmd += ["--proxy", OUTBOUND_PROXY]
+            try:
+                proc = _sp.run(curl_cmd, input=body_bytes, capture_output=True, timeout=610)
+                output = proc.stdout.decode("utf-8", errors="replace")
+                print(f"[ai-chat] curl rc={proc.returncode} stdout_len={len(output)} stderr={proc.stderr.decode('utf-8', errors='replace')[:200]}", flush=True)
+                # 从输出末尾提取 HTTP 状态码
+                if "__HTTP_CODE__:" in output:
+                    parts = output.rsplit("__HTTP_CODE__:", 1)
+                    raw_body = parts[0]
+                    status = int(parts[1].strip())
+                else:
+                    raw_body = output
+                    status = 200 if proc.returncode == 0 else 502
+                if proc.returncode != 0 and not raw_body.strip():
+                    stderr_msg = proc.stderr.decode("utf-8", errors="replace")[:500]
+                    return self.send_error_json(HTTPStatus.BAD_GATEWAY, f"curl 失败 (rc={proc.returncode}): {stderr_msg}")
+            except Exception as curl_err:
+                return self.send_error_json(HTTPStatus.BAD_GATEWAY, f"AI 请求失败: {curl_err}")
+
+            try:
+                result = json.loads(raw_body)
+            except (json.JSONDecodeError, ValueError):
+                result = {"raw": raw_body[:2000]}
+            return self.send_json(status, result)
+
         except error.HTTPError as exc:
             raw = exc.read()
-            status = exc.code
-        except error.URLError as exc:
-            return self.send_error_json(HTTPStatus.BAD_GATEWAY, f"AI 请求失败: {exc.reason}")
+            try:
+                result = json.loads(raw.decode("utf-8"))
+            except Exception:
+                result = {"error": raw.decode("utf-8", errors="replace")}
+            return self.send_json(exc.code, result)
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            return self.send_error_json(HTTPStatus.INTERNAL_SERVER_ERROR, f"AI 请求异常: {exc}")
 
+    def _proxy_ai_chat_gemini(self, data: dict):
+        """Route chat request to Gemini generateContent API (for vision/image models)."""
+        model = data.get("model", "gemini-3-pro-image-preview")
+        messages = data.get("messages", [])
+        base = STATE.get("ai_image_base") or GEMINI_BASE
+
+        # 将 OpenAI 格式的 messages 转换为 Gemini contents 格式
+        contents: list[dict] = []
+        system_instruction = None
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                system_instruction = content if isinstance(content, str) else json.dumps(content)
+                continue
+            gemini_role = "model" if role == "assistant" else "user"
+            if isinstance(content, str):
+                parts = [{"text": content}]
+            elif isinstance(content, list):
+                parts = []
+                for item in content:
+                    if item.get("type") == "text":
+                        parts.append({"text": item.get("text", "")})
+                    elif item.get("type") == "image_url":
+                        url = item.get("image_url", {}).get("url", "")
+                        if url.startswith("data:"):
+                            # data:image/png;base64,xxxx
+                            mime_end = url.index(";")
+                            mime = url[5:mime_end]
+                            b64 = url.split(",", 1)[1]
+                            parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+                        else:
+                            parts.append({"text": f"[image: {url}]"})
+            else:
+                parts = [{"text": str(content)}]
+            contents.append({"role": gemini_role, "parts": parts})
+
+        payload: dict = {
+            "contents": contents,
+            "generationConfig": {"responseMimeType": "text/plain"},
+        }
+        if system_instruction:
+            payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+
+        url = f"{base}/models/{model}:generateContent"
         try:
-            result = json.loads(raw.decode("utf-8"))
-        except json.JSONDecodeError:
-            result = {"raw": raw.decode("utf-8", errors="replace")}
-        return self.send_json(status, result)
+            gemini_result = _gemini_request(url, payload, timeout=600)
+        except Exception as exc:
+            return self.send_error_json(HTTPStatus.BAD_GATEWAY, f"Gemini 请求失败: {exc}")
+
+        # 将 Gemini 响应转换为 OpenAI chat completion 格式
+        text = ""
+        for candidate in gemini_result.get("candidates", []):
+            for part in candidate.get("content", {}).get("parts", []):
+                if "text" in part:
+                    text += part["text"]
+        result = {
+            "choices": [{"message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+            "model": model,
+        }
+        return self.send_json(HTTPStatus.OK, result)
 
     def proxy_ai_chat_stream(self):
         """Proxy streaming chat completion request, forwarding SSE chunks."""
@@ -3149,16 +3284,19 @@ class AppHandler(BaseHTTPRequestHandler):
         if not api_key:
             return self.send_error_json(HTTPStatus.BAD_REQUEST, "还没有设置 API Key")
 
-        # Normalize: extract system messages to top-level param
-        data = self._normalize_messages(data)
         data["stream"] = True
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        req = request.Request(STATE["ai_chat_base"], data=body, headers=headers, method="POST")
-        opener = self._make_opener(STATE["ai_chat_base"])
+        target_url = STATE["ai_chat_base"]
+        req = request.Request(target_url, data=body, headers=headers, method="POST")
+        if target_url.startswith("https://"):
+            proxy_handler = request.ProxyHandler({"https": OUTBOUND_PROXY, "http": OUTBOUND_PROXY})
+            opener = request.build_opener(proxy_handler)
+        else:
+            opener = self._make_opener(target_url)
 
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -3201,7 +3339,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
         image_base = STATE.get("ai_image_base", "")
         image_model = STATE.get("ai_image_model", "")
-        if _is_gemini_mode() and ("generativelanguage.googleapis.com" in image_base or image_model.startswith("imagen") or image_model.startswith("nano-banana")):
+        if _is_gemini_mode() and ("generativelanguage.googleapis.com" in image_base or image_model.startswith("imagen") or image_model.startswith("nano-banana") or image_model.startswith("gemini-")):
             # Gemini Imagen path (only when image base points to Gemini)
             prompt = data.get("prompt", "")
             pixel_size = data.get("size", "1024x1536")
@@ -3259,6 +3397,305 @@ class AppHandler(BaseHTTPRequestHandler):
         if job is None:
             return self.send_error_json(HTTPStatus.NOT_FOUND, "任务不存在")
         return self.send_json(HTTPStatus.OK, job)
+
+    # --- Grid Generator handlers ---
+
+    def _handle_grid_generate(self):
+        """POST /api/grid/generate — start a grid image generation job."""
+        try:
+            data = self.read_json()
+        except ValueError:
+            return
+
+        ref_image = data.get("reference_image", "")
+        grid_size = data.get("grid_size", 9)
+        mode = data.get("mode", "expression")
+
+        if not ref_image:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "缺少参考图片")
+        if grid_size not in (9, 25):
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "grid_size 必须为 9 或 25")
+        if mode not in ("expression", "scene", "body"):
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "mode 必须为 expression、scene 或 body")
+
+        # Parse data URI → base64 + mime
+        if ref_image.startswith("data:"):
+            header, b64_data = ref_image.split(",", 1)
+            mime_type = header.split(":")[1].split(";")[0]
+        else:
+            b64_data = ref_image
+            mime_type = "image/png"
+
+        import grid_generator
+        try:
+            job_id = grid_generator.create_grid_job(
+                reference_image_b64=b64_data,
+                mime_type=mime_type,
+                grid_size=grid_size,
+                generate_image_fn=_gemini_generate_image,
+                mode=mode,
+            )
+        except ValueError as exc:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+
+        return self.send_json(HTTPStatus.ACCEPTED, {"job_id": job_id, "status": "pending"})
+
+    def _handle_grid_regenerate(self):
+        """POST /api/grid/regenerate — regenerate a single expression image."""
+        try:
+            data = self.read_json()
+        except ValueError:
+            return
+
+        job_id = data.get("job_id", "")
+        expression_key = data.get("expression_key", "")
+
+        if not job_id or not expression_key:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "缺少 job_id 或 expression_key")
+
+        import grid_generator
+        started = grid_generator.regenerate_single(
+            job_id=job_id,
+            expression_key=expression_key,
+            generate_image_fn=_gemini_generate_image,
+        )
+        if not started:
+            return self.send_error_json(HTTPStatus.NOT_FOUND, "任务不存在或表情 key 无效")
+
+        return self.send_json(HTTPStatus.OK, {"ok": True, "status": "regenerating"})
+
+    def _handle_grid_job_status(self, job_id: str):
+        """GET /api/grid/job/{job_id} — poll grid generation status."""
+        import grid_generator
+        job = grid_generator.get_grid_job_status(job_id)
+        if job is None:
+            return self.send_error_json(HTTPStatus.NOT_FOUND, "Grid 任务不存在")
+        return self.send_json(HTTPStatus.OK, job)
+
+    # --- Storyboard Grid handlers ---
+
+    def _handle_storyboard_analyze(self):
+        """POST /api/grid/storyboard/analyze — async version to avoid proxy timeout."""
+        try:
+            data = self.read_json()
+        except ValueError:
+            return
+
+        ref_image = data.get("reference_image", "")
+        grid_size = data.get("grid_size", 9)
+
+        if not ref_image:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "缺少参考图片")
+        if grid_size not in (9, 25):
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "grid_size 必须为 9 或 25")
+
+        if ref_image.startswith("data:"):
+            header, b64_data = ref_image.split(",", 1)
+            mime_type = header.split(":")[1].split(";")[0]
+        else:
+            b64_data = ref_image
+            mime_type = "image/png"
+
+        import uuid
+        import storyboard_grid_generator
+        job_id = str(uuid.uuid4())
+
+        with _image_jobs_lock:
+            _image_jobs[job_id] = {"status": "pending"}
+
+        def _analyze_worker():
+            try:
+                analysis = storyboard_grid_generator.analyze_storyboard(
+                    ref_b64=b64_data, mime_type=mime_type,
+                    grid_size=grid_size, gemini_request_fn=_gemini_request,
+                )
+                with _image_jobs_lock:
+                    _image_jobs[job_id] = {"status": "done", "result": analysis}
+            except Exception as exc:
+                with _image_jobs_lock:
+                    _image_jobs[job_id] = {"status": "error", "error": str(exc)}
+
+        import threading
+        threading.Thread(target=_analyze_worker, daemon=True).start()
+        return self.send_json(HTTPStatus.ACCEPTED, {"job_id": job_id, "status": "pending"})
+
+    def _handle_storyboard_generate(self):
+        """POST /api/grid/storyboard/generate"""
+        try:
+            data = self.read_json()
+        except ValueError:
+            return
+
+        ref_image = data.get("reference_image", "")
+        analysis = data.get("analysis")
+        grid_size = data.get("grid_size", 9)
+        aspect_ratio = data.get("aspect_ratio", "16:9")
+
+        if not ref_image or not analysis:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "缺少参数")
+
+        if ref_image.startswith("data:"):
+            header, b64_data = ref_image.split(",", 1)
+            mime_type = header.split(":")[1].split(";")[0]
+        else:
+            b64_data = ref_image
+            mime_type = "image/png"
+
+        import storyboard_grid_generator
+        try:
+            job_id = storyboard_grid_generator.create_storyboard_job(
+                ref_b64=b64_data, mime_type=mime_type,
+                analysis=analysis, grid_size=grid_size,
+                aspect_ratio=aspect_ratio,
+                generate_image_fn=_gemini_generate_image,
+            )
+            return self.send_json(HTTPStatus.ACCEPTED, {"job_id": job_id, "status": "pending"})
+        except Exception as exc:
+            return self.send_error_json(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+
+    def _handle_storyboard_job_status(self, job_id: str):
+        """GET /api/grid/storyboard/job/{id}"""
+        import storyboard_grid_generator
+        job = storyboard_grid_generator.get_storyboard_job_status(job_id)
+        if job is None:
+            return self.send_error_json(HTTPStatus.NOT_FOUND, "任务不存在")
+        return self.send_json(HTTPStatus.OK, job)
+
+    def _handle_storyboard_regenerate(self):
+        """POST /api/grid/storyboard/regenerate"""
+        try:
+            data = self.read_json()
+        except ValueError:
+            return
+        job_id = data.get("job_id", "")
+        frame_key = data.get("frame_key", "")
+        if not job_id or not frame_key:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "缺少 job_id 或 frame_key")
+
+        import storyboard_grid_generator
+        started = storyboard_grid_generator.regenerate_single_frame(
+            job_id=job_id, frame_key=frame_key,
+            generate_image_fn=_gemini_generate_image,
+        )
+        if not started:
+            return self.send_error_json(HTTPStatus.NOT_FOUND, "任务不存在或帧 key 无效")
+        return self.send_json(HTTPStatus.OK, {"ok": True, "status": "regenerating"})
+
+    def _serve_grid_asset(self, job_id: str, filename: str):
+        """GET /api/grid/assets/{job_id}/{filename} — serve generated grid image."""
+        filepath = Path("storage/grid-jobs") / job_id / filename
+        if not filepath.exists():
+            return self.send_error_json(HTTPStatus.NOT_FOUND, "图片不存在")
+
+        mime = "image/png" if filename.endswith(".png") else "image/jpeg"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", mime)
+        self.send_header("Cache-Control", "public, max-age=3600")
+        data = filepath.read_bytes()
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    # --- Scene 360 handlers ---
+
+    def _handle_scene360_analyze(self):
+        """POST /api/grid/scene360/analyze — AI-analyze a reference image for 360° reconstruction."""
+        try:
+            data = self.read_json()
+        except ValueError:
+            return
+
+        ref_image = data.get("reference_image", "")
+        if not ref_image:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "缺少参考图片")
+
+        if ref_image.startswith("data:"):
+            header, b64_data = ref_image.split(",", 1)
+            mime_type = header.split(":")[1].split(";")[0]
+        else:
+            b64_data = ref_image
+            mime_type = "image/png"
+
+        import scene360_generator
+        try:
+            analysis = scene360_generator.analyze_scene(b64_data, mime_type, _gemini_request)
+        except Exception as exc:
+            return self.send_error_json(HTTPStatus.INTERNAL_SERVER_ERROR, f"AI 分析失败: {exc}")
+
+        return self.send_json(HTTPStatus.OK, analysis)
+
+    def _handle_scene360_generate(self):
+        """POST /api/grid/scene360/generate — start 360° view generation job."""
+        try:
+            data = self.read_json()
+        except ValueError:
+            return
+
+        ref_image = data.get("reference_image", "")
+        analysis = data.get("analysis")
+        view_count = data.get("view_count", 6)
+        aspect_ratio = data.get("aspect_ratio", "16:9")
+
+        if not ref_image:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "缺少参考图片")
+        if not analysis:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "缺少分析结果")
+        if view_count not in (4, 6, 8):
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "view_count 必须为 4、6 或 8")
+
+        if ref_image.startswith("data:"):
+            header, b64_data = ref_image.split(",", 1)
+            mime_type = header.split(":")[1].split(";")[0]
+        else:
+            b64_data = ref_image
+            mime_type = "image/png"
+
+        import scene360_generator
+        try:
+            job_id = scene360_generator.create_scene360_job(
+                ref_b64=b64_data,
+                mime_type=mime_type,
+                analysis=analysis,
+                view_count=view_count,
+                aspect_ratio=aspect_ratio,
+                generate_image_fn=_gemini_generate_image,
+            )
+        except ValueError as exc:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+
+        return self.send_json(HTTPStatus.ACCEPTED, {"job_id": job_id, "status": "pending"})
+
+    def _handle_scene360_job_status(self, job_id: str):
+        """GET /api/grid/scene360/job/{job_id} — poll scene 360 generation status."""
+        import scene360_generator
+        job = scene360_generator.get_scene360_job_status(job_id)
+        if job is None:
+            return self.send_error_json(HTTPStatus.NOT_FOUND, "Scene360 任务不存在")
+        return self.send_json(HTTPStatus.OK, job)
+
+    def _handle_scene360_regenerate(self):
+        """POST /api/grid/scene360/regenerate — regenerate a single view."""
+        try:
+            data = self.read_json()
+        except ValueError:
+            return
+
+        job_id = data.get("job_id", "")
+        view_key = data.get("view_key", "")
+
+        if not job_id or not view_key:
+            return self.send_error_json(HTTPStatus.BAD_REQUEST, "缺少 job_id 或 view_key")
+
+        import scene360_generator
+        started = scene360_generator.regenerate_single_view(
+            job_id=job_id,
+            view_key=view_key,
+            generate_image_fn=_gemini_generate_image,
+        )
+        if not started:
+            return self.send_error_json(HTTPStatus.NOT_FOUND, "任务不存在或视图 key 无效")
+
+        return self.send_json(HTTPStatus.OK, {"ok": True, "status": "regenerating"})
 
     def render_project(self, project_id):
         """

@@ -1488,6 +1488,19 @@ export function convertAnalysisToProjectData(analysis: ScriptAnalysis): {
     status: "pending" as const,
   }));
 
+  // 从剧本的镜头关联中推导每个场景包含的角色
+  const sceneCharMap = new Map<string, Set<string>>();
+  for (const ep of analysis.episodes) {
+    for (const sc of ep.scenes) {
+      const sceneId = sc.scene_ref || sc.scene_id;
+      if (!sceneCharMap.has(sceneId)) sceneCharMap.set(sceneId, new Set());
+      const charSet = sceneCharMap.get(sceneId)!;
+      for (const d of sc.dialogues || []) {
+        if (d.character) charSet.add(d.character);
+      }
+    }
+  }
+
   const scenes: WfScene[] = analysis.scenes.map((s) => ({
     id: s.scene_id,
     name: s.name,
@@ -1495,6 +1508,7 @@ export function convertAnalysisToProjectData(analysis: ScriptAnalysis): {
     six_view_prompts: s.six_view_prompts || undefined,
     lighting: s.lighting || undefined,
     views: { front: null, back: null, left: null, right: null, top: null, detail: null },
+    character_ids: [...(sceneCharMap.get(s.scene_id) || [])],
     status: "pending" as const,
   }));
 
@@ -1567,6 +1581,7 @@ export async function generateStoryboardImage(
   shot: WfShot,
   projectId: string,
   imageModel: string = "imagen-4.0-generate-001",
+  referenceImageUrls?: string[],
 ): Promise<string | null> {
   try {
     const result = await wfGenerateImage({
@@ -1576,6 +1591,7 @@ export async function generateStoryboardImage(
       size: "1080x1920",
       project_id: projectId,
       asset_filename: `storyboard_${shot.id}.png`,
+      ...(referenceImageUrls?.length ? { reference_image_urls: referenceImageUrls } : {}),
     });
     return result.saved_assets?.[0]?.asset_url || result.data?.[0]?.url || null;
   } catch (err) {

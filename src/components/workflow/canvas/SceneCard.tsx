@@ -20,6 +20,8 @@ interface SceneCardProps {
   sixViewPrompts?: Record<string, string>;
   /** 确认生成回调：用户确认提示词后触发单个场景的图片生成 */
   onConfirmGenerate?: (sceneId: string) => void;
+  /** 该场景关联的角色（用于展示角色头像 chips） */
+  characters?: Array<{ id: string; name: string; front_view: string | null }>;
 }
 
 const VIEW_LABELS: Record<string, string> = {
@@ -58,6 +60,7 @@ export default function SceneCard({
   locked,
   sixViewPrompts,
   onConfirmGenerate,
+  characters,
 }: SceneCardProps) {
   const viewEntries = Object.entries(scene.views || {});
   const hasAnyView = viewEntries.some(([, v]) => v);
@@ -79,10 +82,29 @@ export default function SceneCard({
       blockKey={blockKey}
       onResize={onResize}
     >
-      <p style={{ fontSize: 12, color: "#aaa", marginBottom: 10 }}>
+      <p style={{ fontSize: 12, color: "#aaa", marginBottom: 8 }}>
         {scene.description.slice(0, 120)}
         {scene.description.length > 120 ? "..." : ""}
       </p>
+
+      {/* 关联角色 */}
+      {characters && characters.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+          {characters.map((c) => (
+            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 4, background: "#27272a", borderRadius: 12, padding: "2px 8px 2px 2px" }}>
+              {c.front_view ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={c.front_view} alt={c.name} style={{ width: 18, height: 18, borderRadius: "50%", objectFit: "cover" }} />
+              ) : (
+                <div style={{ width: 18, height: 18, borderRadius: "50%", background: "#3f3f46", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#a1a1aa" }}>
+                  {c.name[0]}
+                </div>
+              )}
+              <span style={{ fontSize: 10, color: "#d4d4d8", fontWeight: 500 }}>{c.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 提示词预览模式：展示 AI 生成的提示词，等待用户确认 */}
       {isPromptPreviewMode ? (

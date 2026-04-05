@@ -308,3 +308,80 @@ export function calcShotCount(
 ): number {
   return Math.ceil(durationSec / shotDurationSec);
 }
+
+// =====================================================
+// 风格参考图分析
+// =====================================================
+
+import { wfAiChat, type StyleMatchAnalysis } from "./api";
+
+const STYLE_ANALYSIS_SYSTEM_PROMPT = `You are a professional visual style analyst. Analyze the provided reference image(s) and extract:
+1. color_palette: array of 5-8 dominant hex color codes (e.g. ["#2C3E50", "#E74C3C"])
+2. composition_style: short description of composition patterns (e.g. "centered subject, shallow depth of field, rule of thirds")
+3. mood_keywords: array of 3-6 mood/atmosphere words (e.g. ["melancholic", "ethereal", "warm"])
+4. style_descriptors: a concise English prompt fragment (under 80 words) capturing the visual style, suitable for injection into an image generation prompt. Focus on art style, lighting, color grading, texture, and rendering technique.
+5. confidence: a float 0-1 indicating how consistently the images share a unified style (1.0 = all images share identical style)
+
+Return ONLY valid JSON with these exact keys. No markdown, no explanation.`;
+
+/**
+ * 调用视觉模型分析参考图，提取风格特征
+ */
+export async function analyzeStyleReferenceImages(
+  imageUrls: string[],
+): Promise<StyleMatchAnalysis> {
+  const imageContent = imageUrls.map((url) => ({
+    type: "image_url" as const,
+    image_url: { url },
+  }));
+
+  const result = await wfAiChat({
+    model: "gemini-3-pro-image-preview",
+    messages: [
+      { role: "system", content: STYLE_ANALYSIS_SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: [
+          ...imageContent,
+          { type: "text" as const, text: "Analyze the visual style of these reference images. Return JSON only." },
+        ],
+      },
+    ],
+  });
+
+  const raw = result.choices?.[0]?.message?.content || "{}";
+  // 去除可能的 markdown 代码块包裹
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    return {
+      color_palette: Array.isArray(parsed.color_palette) ? parsed.color_palette.slice(0, 8) : [],
+      composition_style: typeof parsed.composition_style === "string" ? parsed.composition_style : "",
+      mood_keywords: Array.isArray(parsed.mood_keywords) ? parsed.mood_keywords.slice(0, 6) : [],
+      style_descriptors: typeof parsed.style_descriptors === "string" ? parsed.style_descriptors.slice(0, 300) : "",
+      confidence: typeof parsed.confidence === "number" ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5,
+    };
+  } catch {
+    return {
+      color_palette: [],
+      composition_style: "",
+      mood_keywords: [],
+      style_descriptors: "",
+      confidence: 0,
+    };
+  }
+}
+
+/**
+ * 将参考图分析结果的风格描述追加到已有 compiled_style_prompt
+ */
+export function appendStyleReferenceDescriptors(
+  basePrompt: string,
+  analysis: StyleMatchAnalysis,
+): string {
+  if (!analysis.style_descriptors) return basePrompt;
+  // 去重：如果 basePrompt 已包含描述片段则不重复追加
+  if (basePrompt.includes(analysis.style_descriptors)) return basePrompt;
+  return `${basePrompt}, [reference style: ${analysis.style_descriptors}]`;
+}

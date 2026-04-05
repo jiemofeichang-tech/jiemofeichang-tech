@@ -10,6 +10,7 @@ import ResizableWrapper from "./ResizableWrapper";
 import ScriptBlock from "./canvas/ScriptBlock";
 import StyleConfigStep from "./StyleConfigStep";
 import CharacterCard from "./canvas/CharacterCard";
+import SceneCard from "./canvas/SceneCard";
 import StoryboardGrid from "./canvas/StoryboardGrid";
 import VideoGrid from "./canvas/VideoGrid";
 import PostProduction from "./canvas/PostProduction";
@@ -364,13 +365,15 @@ export default function CanvasPanel() {
       showStyleConfig: hasAnalysis,
       styleConfigDone: !!project.style_config,
       characterIds: project.characters.map((c) => c.id),
+      sceneIds: project.scenes.map((s) => s.id),
+      showStyleConfirm: hasAnalysis && !project.style_config,
       showGenerateAssets: hasAnalysis && (
         project.characters.length === 0 ||
         project.characters.every((c) => !c.front_view && !c.side_view && !c.back_view)
       ),
       showAssetLock:
-        project.characters.length > 0 &&
-        project.characters.some((c) => c.status === "done"),
+        (project.characters.length > 0 && project.characters.some((c) => c.status === "done")) ||
+        (project.scenes.length > 0 && project.scenes.some((s) => s.status === "done")),
       hasStoryboard: project.episodes.length > 0 || project.characters.length > 0,
       hasVideos:
         project.episodes.length > 0 &&
@@ -528,34 +531,23 @@ export default function CanvasPanel() {
               progress={stageProgress?.stage === "剧本分析" ? stageProgress.percent : undefined}
               progressText={stageProgress?.stage === "剧本分析" ? stageProgress.step : undefined}
             />
-            {/* 风格配置（合并到剧本阶段下方） */}
-            {project.script?.analysis && (
-              <div style={{ marginTop: 16, background: "#1e1e2e", borderRadius: 12, border: project.style_config ? "1px solid #4ade80" : "1px dashed #7c3aed", padding: 16 }}>
-                {project.style_config && selectedBlock?.id !== "style-config" ? (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#4ade80", marginBottom: 4 }}>✓ 风格已配置</div>
-                      <div style={{ fontSize: 12, color: "#999" }}>
-                        {project.style_config.art_substyle} · {project.style_config.aspect_ratio} · {project.style_config.duration_sec}s · {project.style_config.episode_count || "?"}集
-                      </div>
+            {/* 风格配置摘要（仅在已配置时显示） */}
+            {project.script?.analysis && project.style_config && (
+              <div style={{ marginTop: 16, background: "#1e1e2e", borderRadius: 12, border: "1px solid #4ade80", padding: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#4ade80", marginBottom: 4 }}>✓ 风格已配置</div>
+                    <div style={{ fontSize: 12, color: "#999" }}>
+                      {project.style_config.art_substyle} · {project.style_config.aspect_ratio} · {project.style_config.duration_sec}s · {project.style_config.episode_count || "?"}集
                     </div>
-                    <button
-                      onClick={() => setSelectedBlock({ type: "style", id: "style-config", label: "编辑风格" })}
-                      style={{ fontSize: 12, padding: "4px 12px", borderRadius: 6, border: "1px solid #555", background: "transparent", color: "#ccc", cursor: "pointer" }}
-                    >
-                      修改
-                    </button>
                   </div>
-                ) : (
-                  <StyleConfigStep
-                    initialConfig={project.style_config || null}
-                    scriptContent={project.script.raw_input || ""}
-                    onSave={(config) => {
-                      setStyleConfig(config);
-                      setSelectedBlock(null);
-                    }}
-                  />
-                )}
+                  <button
+                    onClick={() => setSelectedBlock({ type: "style", id: "style-config", label: "编辑风格" })}
+                    style={{ fontSize: 12, padding: "4px 12px", borderRadius: 6, border: "1px solid #555", background: "transparent", color: "#ccc", cursor: "pointer" }}
+                  >
+                    修改
+                  </button>
+                </div>
               </div>
             )}
             </ResizableWrapper>
@@ -563,7 +555,34 @@ export default function CanvasPanel() {
         );
       })()}
 
-      {/* Style Config 已合并到 script block 内 */}
+      {/* ── 独立风格配置块（风格未确认时显示） ── */}
+      {(() => {
+        const b = findBlock("style-confirm");
+        if (!b) return null;
+        return (
+          <div ref={makeResizeRef("style-confirm")} style={{ position: "absolute", left: b.x, top: b.y }}>
+            <ResizableWrapper blockKey="style-confirm" initialWidth={b.width} onSizeChange={handleSizeChange} onPositionChange={handlePositionChange}>
+              <div style={{ background: "#1a1a2e", borderRadius: 12, border: "2px solid #7c3aed", padding: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                  <span style={{ fontSize: 20 }}>🎨</span>
+                  <h3 style={{ fontSize: 16, fontWeight: 700, color: "#fff", margin: 0 }}>确认全局风格</h3>
+                  <span style={{ fontSize: 12, color: "#a78bfa", background: "#7c3aed20", padding: "2px 8px", borderRadius: 8 }}>必填</span>
+                </div>
+                <p style={{ fontSize: 13, color: "#999", marginBottom: 16 }}>确认风格后将自动开始生成角色三视图和场景六视图</p>
+                <StyleConfigStep
+                  initialConfig={project.style_config || null}
+                  scriptContent={project.script?.raw_input || ""}
+                  projectId={project.id}
+                  onSave={(config) => {
+                    setStyleConfig(config);
+                    setSelectedBlock(null);
+                  }}
+                />
+              </div>
+            </ResizableWrapper>
+          </div>
+        );
+      })()}
 
       {/* ── Generate Assets Button ── */}
       {(() => {
@@ -612,6 +631,45 @@ export default function CanvasPanel() {
             );
           })}
 
+
+      {/* ── Scenes ── */}
+      {project.scenes.map((scene) => {
+            const b = findBlock(`scene-${scene.id}`);
+            if (!b) return null;
+            const isLocked = project.status === "assets_locked";
+            const sceneChars = (scene.character_ids || [])
+              .map((cid) => project.characters.find((c) => c.id === cid))
+              .filter(Boolean)
+              .map((c) => ({ id: c!.id, name: c!.name, front_view: c!.front_view }));
+            return (
+              <div key={scene.id} ref={makeResizeRef(`scene-${scene.id}`)} style={{ position: "absolute", left: b.x, top: b.y }}>
+                <ResizableWrapper blockKey={`scene-${scene.id}`} initialWidth={b.width} onSizeChange={handleSizeChange} onPositionChange={handlePositionChange}>
+                <SceneCard
+                  scene={scene}
+                  onEdit={() => {
+                    setStage("character");
+                    setSelectedBlock({ type: "scene", id: scene.id, label: scene.name });
+                  }}
+                  onRegenerate={() => generateSingleSceneImages(scene.id)}
+                  isSelected={selectedBlock?.type === "scene" && selectedBlock.id === scene.id}
+                  blockKey={`scene-${scene.id}`}
+                  onResize={handleResize}
+                  locked={isLocked}
+                  sixViewPrompts={scene.six_view_prompts}
+                  onConfirmGenerate={(sid) => generateSingleSceneImages(sid)}
+                  onApproveView={(sid, vk) => approveView("scene", sid, vk)}
+                  onRegenerateView={(sid, vk) => regenerateViewAction("scene", sid, vk)}
+                  onUploadReplacement={(sid, vk, data) => uploadReplacementView("scene", sid, vk, data)}
+                  onEditPrompt={(sid, vk) => {
+                    setStage("character");
+                    setSelectedBlock({ type: "scene", id: sid, label: `编辑 ${vk} 提示词` });
+                  }}
+                  characters={sceneChars}
+                />
+                </ResizableWrapper>
+              </div>
+            );
+          })}
 
       {/* ── 资产锁定栏 ── */}
       {(() => {

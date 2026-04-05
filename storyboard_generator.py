@@ -632,7 +632,7 @@ class StoryboardGenerator:
         Returns the generated image URL.
         """
         # Detect Gemini Imagen mode
-        if model.startswith("imagen") or model.startswith("nano-banana") or "generativelanguage.googleapis.com" in api_url:
+        if model.startswith("imagen") or model.startswith("nano-banana") or model.startswith("gemini-") or "generativelanguage.googleapis.com" in api_url:
             return StoryboardGenerator._generate_image_gemini(api_url, api_key, model, prompt, size)
 
         # Legacy Zhonglian path

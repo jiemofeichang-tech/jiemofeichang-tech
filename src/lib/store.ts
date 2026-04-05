@@ -539,6 +539,26 @@ async function loadProject(id: string) {
       currentStage = "post";
     }
     setState({ project, loading: false, chatMessages: project.script?.chat_history || [], stageStatuses, currentStage });
+
+    // 自动检测：有剧本+风格但角色没生成图片 → 自动触发资产生成
+    const needsAssetGen = project.script?.analysis
+      && project.style_config
+      && project.characters.length > 0
+      && project.characters.every((c: WfCharacter) => !c.front_view);
+    if (needsAssetGen && stageStatuses.character === "active") {
+      setStageStatus("character", "generating");
+      setState({ currentStage: "character" });
+      addSystemMessage("检测到资产未生成，正在自动生成角色和场景...");
+      generateAllAssetsAction().then(() => {
+        const after = getState().project;
+        if (after && (after.characters.some((c: WfCharacter) => c.status === "done") || after.scenes.some((s: WfScene) => s.status === "done"))) {
+          setStageStatus("character", "review");
+        }
+      }).catch((genErr) => {
+        addSystemMessage(`资产生成失败: ${(genErr as Error).message}`);
+        setStageStatus("character", "active");
+      });
+    }
   } catch (err) {
     setState({ loading: false, error: (err as Error).message });
   }
@@ -812,14 +832,31 @@ async function regenerateScript() {
     wfUpdateProject(project.id, updatedProject).catch((e: unknown) => console.warn("[auto-save]", e));
 
     setStageStatus("script", "confirmed");
-    setStageStatus("character", "active");
-    setState({ currentStage: "script" }); // 留在 script 页面让用户确认风格
 
     const totalShots = episodes.reduce((s, ep) => s + ep.shots.length, 0);
     addSystemMessage(
-      `✅ 剧本分析完成！提取了 ${characters.length} 个角色、${scenes.length} 个场景、${episodes.length} 集、${totalShots} 个镜头。\n` +
-      `请在下方确认风格配置后进入角色设计。`,
+      `✅ 剧本分析完成！提取了 ${characters.length} 个角色、${scenes.length} 个场景、${episodes.length} 集、${totalShots} 个镜头。`,
     );
+
+    // 如果已有风格配置，直接开始资产生成；否则等用户确认风格
+    if (updatedProject.style_config) {
+      setStageStatus("character", "generating");
+      setState({ currentStage: "character" });
+      addSystemMessage("风格已就绪，正在自动生成角色和场景资产...");
+      generateAllAssetsAction().then(() => {
+        const afterAssets = getState().project;
+        if (afterAssets && (afterAssets.characters.some((c) => c.status === "done") || afterAssets.scenes.some((s) => s.status === "done"))) {
+          setStageStatus("character", "review");
+        }
+      }).catch((genErr) => {
+        addSystemMessage(`资产生成失败: ${(genErr as Error).message}`);
+        setStageStatus("character", "active");
+      });
+    } else {
+      setStageStatus("character", "active");
+      setState({ currentStage: "script" });
+      addSystemMessage("请在下方确认风格配置后进入角色设计。");
+    }
   } catch (err) {
     setState({ chatLoading: false, streamingContent: "", stageProgress: null });
     addSystemMessage(`[错误] 剧本分析失败: ${(err as Error).message}`);
@@ -1320,6 +1357,24 @@ function buildEnhancedStoryboardPrompt(
     }
   }
 
+  // 2.5 追加风格参考图 URL（用户在 StyleConfigStep 中上传的参考图）
+  const styleRefImages = project.style_config?.style_reference_images;
+  if (styleRefImages?.length) {
+    for (const url of styleRefImages) {
+      if (url && !refImageUrls.includes(url)) {
+        refImageUrls.push(url);
+      }
+    }
+  }
+
+  // 2.6 追加场景正面参考图（让分镜图与场景视觉一致）
+  if (shot.scene_id) {
+    const wfScene = project.scenes.find((s) => s.id === shot.scene_id);
+    if (wfScene?.views?.front && !wfScene.views.front.startsWith("data:") && !refImageUrls.includes(wfScene.views.front)) {
+      refImageUrls.push(wfScene.views.front);
+    }
+  }
+
   // 3. 过滤冲突关键词：写实风格 + 三视图专用术语（可能从 shot.prompt 中泄漏）
   const conflictingPatterns = [
     // 写实风格词
@@ -1762,6 +1817,9 @@ async function regenerateSingleVideo(episodeId: string, shotId: string) {
 
   // 收集角色三视图作为视频参考图
   const charRefImages = collectCharRefImagesForVideo(shot, project);
+  // 追加风格参考图（用户上传的参考图）
+  const styleRefImgs = project.style_config?.style_reference_images || [];
+  const allVideoRefs = [...charRefImages, ...styleRefImgs.filter((u) => u && !charRefImages.includes(u))];
 
   const params: GenerationParams = {
     mode: hasStoryboard ? "first_frame" : "text",
@@ -1773,7 +1831,7 @@ async function regenerateSingleVideo(episodeId: string, shotId: string) {
     motionSpeed: isDialogue ? "steady" : motionSpeed,
     generateAudio: false,
     firstFrame: hasStoryboard ? shot.storyboard_image! : undefined,
-    imageRefs: charRefImages.length > 0 ? charRefImages : undefined,
+    imageRefs: allVideoRefs.length > 0 ? allVideoRefs : undefined,
   };
 
   const assembled = assembleVideoPrompt(shot, project);
@@ -1860,6 +1918,9 @@ async function generateVideos() {
 
       // 收集角色三视图作为视频参考图
       const charRefImages = collectCharRefImagesForVideo(shot, project);
+      // 追加风格参考图
+      const batchStyleRefs = project.style_config?.style_reference_images || [];
+      const batchAllRefs = [...charRefImages, ...batchStyleRefs.filter((u) => u && !charRefImages.includes(u))];
 
       const params: GenerationParams = {
         mode: hasStoryboard ? "first_frame" : "text",
@@ -1871,7 +1932,7 @@ async function generateVideos() {
         motionSpeed: isDialogue ? "steady" : motionSpeed,
         generateAudio: false,
         firstFrame: hasStoryboard ? shot.storyboard_image! : undefined,
-        imageRefs: charRefImages.length > 0 ? charRefImages : undefined,
+        imageRefs: batchAllRefs.length > 0 ? batchAllRefs : undefined,
       };
 
       const assembled = assembleVideoPrompt(shot, project);
@@ -2305,8 +2366,18 @@ async function setStyleConfig(config: StyleConfig) {
   // 更新阶段状态（style 已合并到 script）
   if (getState().workflowMode === "interactive") {
     setStageStatus("script", "confirmed");
-    setStageStatus("character", "active");
+    setStageStatus("character", "generating");
     setState({ currentStage: "character" });
+    // 自动开始角色资产生成
+    generateAllAssetsAction().then(() => {
+      const afterAssets = getState().project;
+      if (afterAssets && afterAssets.characters.some((c) => c.status === "done")) {
+        setStageStatus("character", "review");
+      }
+    }).catch((err) => {
+      addSystemMessage(`角色生成失败: ${(err as Error).message}`);
+      setStageStatus("character", "active");
+    });
   }
   try {
     await wfUpdateProject(project.id, { style_config: config, status: "configured" as WfProject["status"] });

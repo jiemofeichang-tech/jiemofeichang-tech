@@ -425,6 +425,8 @@ export interface WfScene {
   views: Record<string, string | null>;
   /** 每张视图的审核状态 */
   view_status?: Record<string, "approved" | "pending" | "rejected">;
+  /** 该场景中出现的角色ID列表（从镜头关联推导） */
+  character_ids?: string[];
   status: "pending" | "generating" | "done";
 }
 
@@ -457,6 +459,24 @@ export interface StyleConfig {
   prompt_manually_edited: boolean;
   /** 编辑前的原始值（用于还原默认） */
   prompt_edit_history: string[];
+  /** 风格参考图 URL 列表（1-3张），通过 wfUploadAsset 上传后获得 */
+  style_reference_images?: string[];
+  /** AI 分析参考图后提取的风格特征 */
+  style_match_analysis?: StyleMatchAnalysis;
+}
+
+/** 参考图风格分析结果 */
+export interface StyleMatchAnalysis {
+  /** 提取的主色调（hex） */
+  color_palette: string[];
+  /** 构图风格描述 */
+  composition_style: string;
+  /** 氛围关键词 */
+  mood_keywords: string[];
+  /** 英文风格描述片段，用于注入提示词 */
+  style_descriptors: string;
+  /** 匹配置信度 0-1 */
+  confidence: number;
 }
 
 export interface WfShot {
@@ -597,7 +617,9 @@ export function wfDeleteProject(id: string) {
   return api<{ message: string }>(`/api/projects/${id}`, { method: "DELETE" });
 }
 
-export function wfAiChat(payload: { model: string; messages: { role: string; content: string }[] }) {
+export type AiChatContent = string | Array<{ type: string; [key: string]: unknown }>;
+
+export function wfAiChat(payload: { model: string; messages: { role: string; content: AiChatContent }[] }) {
   return api<{ choices: { message: { content: string } }[] }>("/api/ai/chat", {
     method: "POST",
     body: JSON.stringify(payload),
@@ -610,7 +632,7 @@ export async function wfAiChatStream(
 ): Promise<string> {
   // Call Python backend directly to avoid Next.js dev proxy 30s timeout.
   // AI responses (especially long JSON) can take 60s+.
-  const backendBase = `http://${window.location.hostname}:8787`;
+  const backendBase = `http://127.0.0.1:8787`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 分钟超时
   let res: Response;
@@ -620,6 +642,7 @@ export async function wfAiChatStream(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...payload, stream: false }),
       signal: controller.signal,
+      credentials: "include",
     });
   } catch (err) {
     clearTimeout(timeoutId);
@@ -814,4 +837,276 @@ export function deriveProgress(record: TaskRecord): { percent: number; label: st
     cancelled: { percent: 100, label: "已取消", stage: 3 },
   };
   return map[status] || { percent: 0, label: status, stage: 0 };
+}
+
+// ---------------------------------------------------------------------------
+// Grid Generator API
+// ---------------------------------------------------------------------------
+
+export interface GridJobResult {
+  key: string;
+  label: string;
+  status: "pending" | "generating" | "done" | "failed";
+  image_url: string | null;
+  error?: string;
+}
+
+export interface GridJobStatus {
+  job_id: string;
+  status: "pending" | "generating" | "done" | "failed" | "partial";
+  grid_size: number;
+  completed: number;
+  total: number;
+  results: GridJobResult[];
+}
+
+export function gridGenerate(payload: {
+  reference_image: string;
+  grid_size: 9 | 25;
+  mode?: "expression" | "scene" | "body";
+}): Promise<{ job_id: string; status: string }> {
+  return api("/api/grid/generate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function gridJobStatus(jobId: string): Promise<GridJobStatus> {
+  return api(`/api/grid/job/${jobId}`);
+}
+
+// --- Scene 360 API ---
+
+export interface Scene360StyleAnchor {
+  rendering_type: string;
+  material_aging: string;
+  texture_density: string;
+  surface_wear: string;
+  vegetation: string;
+  color_style: string;
+  lighting: string;
+  atmosphere: string;
+}
+
+export interface Scene360SceneInfo {
+  scene_type: string;
+  ref_angle: string;
+  observer_position: string;
+  covered_fov: string;
+  main_light: string;
+  time_of_day: string;
+}
+
+export interface Scene360SpatialElement {
+  direction: string;
+  visible: string[];
+  inferred: string[];
+  reasoning: string;
+  image_prompt: string;
+}
+
+export interface Scene360Analysis {
+  style_anchor: Scene360StyleAnchor;
+  scene_info: Scene360SceneInfo;
+  spatial_elements: Scene360SpatialElement[];
+}
+
+export interface Scene360ViewResult {
+  key: string;
+  label: string;
+  direction: string;
+  status: "pending" | "generating" | "done" | "failed";
+  image_url: string | null;
+  error?: string;
+}
+
+export interface Scene360JobStatus {
+  job_id: string;
+  status: "pending" | "generating" | "done" | "failed" | "partial";
+  view_count: number;
+  completed: number;
+  total: number;
+  results: Scene360ViewResult[];
+  stitch_guide: string | null;
+}
+
+export async function scene360Analyze(payload: {
+  reference_image: string;
+}): Promise<Scene360Analysis> {
+  // Direct call to backend to avoid Next.js proxy timeout/size limits for large images
+  const backendBase = "http://127.0.0.1:8787";
+  const res = await fetch(`${backendBase}/api/grid/scene360/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    credentials: "include",
+    signal: AbortSignal.timeout(120_000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = (data as Record<string, unknown>).error;
+    throw new Error(typeof msg === "string" ? msg : `请求失败：${res.status}`);
+  }
+  return data as Scene360Analysis;
+}
+
+export async function scene360Generate(payload: {
+  reference_image: string;
+  analysis: Scene360Analysis;
+  view_count: 4 | 6 | 8;
+  aspect_ratio: string;
+}): Promise<{ job_id: string; status: string }> {
+  const backendBase = "http://127.0.0.1:8787";
+  const res = await fetch(`${backendBase}/api/grid/scene360/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    credentials: "include",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = (data as Record<string, unknown>).error;
+    throw new Error(typeof msg === "string" ? msg : `请求失败：${res.status}`);
+  }
+  return data as { job_id: string; status: string };
+}
+
+export function scene360JobStatus(jobId: string): Promise<Scene360JobStatus> {
+  return api(`/api/grid/scene360/job/${jobId}`);
+}
+
+export function scene360Regenerate(payload: {
+  job_id: string;
+  view_key: string;
+}): Promise<{ ok: boolean; status: string }> {
+  return api("/api/grid/scene360/regenerate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// --- Storyboard Grid ---
+
+export interface StoryboardAnalysis {
+  style_anchor: {
+    rendering_type: string;
+    color_style: string;
+    lighting: string;
+    atmosphere: string;
+  };
+  story: {
+    subject: string;
+    narrative: string;
+    time_span: string;
+    emotion_curve: string;
+  };
+  frames: StoryboardFrame[];
+}
+
+export interface StoryboardFrame {
+  id: string;
+  act: string;
+  shot_type: string;
+  description: string;
+  image_prompt: string;
+}
+
+export interface StoryboardJobStatus {
+  job_id: string;
+  status: "pending" | "generating" | "done" | "failed" | "partial";
+  grid_size: number;
+  completed: number;
+  total: number;
+  results: {
+    key: string;
+    label: string;
+    shot_type: string;
+    description: string;
+    status: "pending" | "generating" | "done" | "failed";
+    image_url: string | null;
+  }[];
+}
+
+export async function storyboardAnalyze(payload: {
+  reference_image: string;
+  grid_size: 9 | 25;
+}): Promise<StoryboardAnalysis> {
+  // Step 1: Submit async analysis job
+  const startRes = await api<{ job_id: string; status: string }>("/api/grid/storyboard/analyze", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  const { job_id } = startRes;
+
+  // Step 2: Poll until done (reuse image job status endpoint)
+  const maxWaitMs = 120_000;
+  const pollInterval = 2000;
+  const deadline = Date.now() + maxWaitMs;
+
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, pollInterval));
+    const jobRes = await api<{
+      status: string;
+      result?: StoryboardAnalysis;
+      error?: string;
+    }>(`/api/ai/image/job/${job_id}`);
+    if (jobRes.status === "done" && jobRes.result) return jobRes.result;
+    if (jobRes.status === "error") throw new Error(jobRes.error || "AI 分析失败");
+  }
+  throw new Error("AI 分析超时");
+}
+
+export async function storyboardGenerate(payload: {
+  reference_image: string;
+  analysis: StoryboardAnalysis;
+  grid_size: 9 | 25;
+  aspect_ratio: string;
+}): Promise<{ job_id: string; status: string }> {
+  const urls = ["http://127.0.0.1:8787/api/grid/storyboard/generate", "/api/grid/storyboard/generate"];
+  let lastError: Error | null = null;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = (data as Record<string, unknown>).error;
+        throw new Error(typeof msg === "string" ? msg : `请求失败：${res.status}`);
+      }
+      return data as { job_id: string; status: string };
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (url.startsWith("http://127")) continue;
+      throw lastError;
+    }
+  }
+  throw lastError ?? new Error("请求失败");
+}
+
+export function storyboardJobStatus(jobId: string): Promise<StoryboardJobStatus> {
+  return api(`/api/grid/storyboard/job/${jobId}`);
+}
+
+export function storyboardRegenerate(payload: {
+  job_id: string;
+  frame_key: string;
+}): Promise<{ ok: boolean; status: string }> {
+  return api("/api/grid/storyboard/regenerate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function gridRegenerate(payload: {
+  job_id: string;
+  expression_key: string;
+}): Promise<{ ok: boolean; status: string }> {
+  return api("/api/grid/regenerate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

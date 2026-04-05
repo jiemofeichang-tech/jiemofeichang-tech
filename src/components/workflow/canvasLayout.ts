@@ -28,6 +28,7 @@ export type BlockType =
   | "generate-assets"
   | "asset-lock"
   | "character"
+  | "scene"
   | "storyboard"
   | "video"
   | "post"
@@ -49,6 +50,9 @@ export interface LayoutInput {
   /** 风格配置是否已完成 */
   styleConfigDone: boolean;
   characterIds: string[];
+  sceneIds: string[];
+  /** 是否显示独立的风格确认块（有剧本分析但风格未确认） */
+  showStyleConfirm: boolean;
   /** 是否显示"生成资产"按钮（有剧本但无角色） */
   showGenerateAssets: boolean;
   /** 是否显示资产锁定栏（有角色且部分完成） */
@@ -75,7 +79,9 @@ const DEFAULT_HEIGHTS: Record<string, number> = {
   "style-config": 0, // 已合并到 script
   "generate-assets": 120,
   "asset-lock": 60,
+  "style-confirm": 400,  // 独立风格确认块
   character: 580,    // 含三视图图片
+  scene: 520,        // 含六视图图片
   storyboard: 300,
   video: 300,
   post: 260,
@@ -138,13 +144,37 @@ export function computeLayout(input: LayoutInput): LayoutBlock[] {
     cursorY += SECTION_GAP - CARD_GAP;
   }
 
-  // ── 风格配置已合并到 script block 内，不再单独占位 ──
-
-  // ── 角色设计 ──
-  if (isLocked("character")) { /* 跳过角色设计 */ }
-  else if (input.characterIds.length > 0 || input.showGenerateAssets) {
+  // ── 风格确认（独立块，风格未配置时显示） ──
+  if (input.showStyleConfirm) {
+    const scW = w("style-confirm", WIDE_WIDTH, custom);
     blocks.push({
-      key: "section-角色设计",
+      key: "section-风格配置",
+      type: "section-label",
+      x: PADDING,
+      y: cursorY,
+      width: scW,
+      height: SECTION_HEADER,
+    });
+    cursorY += SECTION_HEADER;
+
+    const scH = h("style-confirm", "style-confirm", measured, custom);
+    blocks.push({
+      key: "style-confirm",
+      type: "style-config",
+      x: PADDING,
+      y: cursorY,
+      width: scW,
+      height: scH,
+    });
+    cursorY += scH + SECTION_GAP;
+  }
+
+  // ── 资产设计（角色 + 场景） ──
+  const hasAssets = input.characterIds.length > 0 || input.sceneIds.length > 0 || input.showGenerateAssets;
+  if (isLocked("character")) { /* 跳过资产设计 */ }
+  else if (hasAssets) {
+    blocks.push({
+      key: "section-资产设计",
       type: "section-label",
       x: PADDING,
       y: cursorY,
@@ -167,7 +197,19 @@ export function computeLayout(input: LayoutInput): LayoutBlock[] {
       });
       cursorY += gaH + SECTION_GAP;
     }
+
+    // ── 角色 ──
     if (input.characterIds.length > 0) {
+      blocks.push({
+        key: "section-角色",
+        type: "section-label",
+        x: PADDING,
+        y: cursorY,
+        width: WIDE_WIDTH,
+        height: SECTION_HEADER,
+      });
+      cursorY += SECTION_HEADER;
+
       let maxRowH = 0;
       input.characterIds.forEach((id, i) => {
         const col = i % CARDS_PER_ROW;
@@ -184,6 +226,43 @@ export function computeLayout(input: LayoutInput): LayoutBlock[] {
         blocks.push({
           key,
           type: "character",
+          x: PADDING + col * (CARD_WIDTH + CARD_GAP),
+          y: cursorY,
+          width: cardW,
+          height: cardH,
+        });
+      });
+      cursorY += maxRowH + CARD_GAP;
+    }
+
+    // ── 场景 ──
+    if (input.sceneIds.length > 0) {
+      blocks.push({
+        key: "section-场景",
+        type: "section-label",
+        x: PADDING,
+        y: cursorY,
+        width: WIDE_WIDTH,
+        height: SECTION_HEADER,
+      });
+      cursorY += SECTION_HEADER;
+
+      let maxRowH = 0;
+      input.sceneIds.forEach((id, i) => {
+        const col = i % CARDS_PER_ROW;
+        const key = `scene-${id}`;
+        const cardW = w(key, CARD_WIDTH, custom);
+        const cardH = h(key, "scene", measured, custom);
+
+        if (col === 0 && i > 0) {
+          cursorY += maxRowH + CARD_GAP;
+          maxRowH = 0;
+        }
+        maxRowH = Math.max(maxRowH, cardH);
+
+        blocks.push({
+          key,
+          type: "scene",
           x: PADDING + col * (CARD_WIDTH + CARD_GAP),
           y: cursorY,
           width: cardW,
@@ -214,7 +293,7 @@ export function computeLayout(input: LayoutInput): LayoutBlock[] {
       height: alH,
     });
     cursorY += alH + SECTION_GAP;
-  } else if (input.characterIds.length > 0) {
+  } else if (input.characterIds.length > 0 || input.sceneIds.length > 0) {
     // 有角色/场景但没有锁定栏时，补足间距
     cursorY += SECTION_GAP - CARD_GAP;
   }

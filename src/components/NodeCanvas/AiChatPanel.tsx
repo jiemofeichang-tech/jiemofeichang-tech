@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 interface AiChatPanelProps {
   onGenerate: (result: { type: string; cards: { title: string; content: string; imageUrl?: string }[] }) => void;
+  onMinimize: () => void;
 }
 
 interface ChatMsg {
@@ -18,11 +19,45 @@ const templates = [
   { label: "视频生成", desc: "将分镜转为视频片段", prompt: "请将分镜图转为视频" },
 ];
 
-export default function AiChatPanel({ onGenerate }: AiChatPanelProps) {
+const MIN_WIDTH = 240;
+const MAX_WIDTH = 600;
+const DEFAULT_WIDTH = 320;
+
+export default function AiChatPanel({ onGenerate, onMinimize }: AiChatPanelProps) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(DEFAULT_WIDTH);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    isDragging.current = true;
+    startX.current = e.clientX;
+    startWidth.current = width;
+    e.preventDefault();
+  }, [width]);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current) return;
+      // 向左拖 = 增大宽度（面板在右侧）
+      const delta = startX.current - e.clientX;
+      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth.current + delta));
+      setWidth(next);
+    };
+    const onMouseUp = () => {
+      isDragging.current = false;
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || loading) return;
@@ -32,7 +67,7 @@ export default function AiChatPanel({ onGenerate }: AiChatPanelProps) {
     setLoading(true);
 
     try {
-      const backendBase = `http://${window.location.hostname}:8787`;
+      const backendBase = `http://127.0.0.1:8787`;
       const res = await fetch(`${backendBase}/api/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -56,122 +91,162 @@ export default function AiChatPanel({ onGenerate }: AiChatPanelProps) {
   };
 
   return (
-    <div style={{
-      width: 320,
-      background: "#f8f8f0",
-      borderLeft: "1px solid #e0e0d0",
-      display: "flex",
-      flexDirection: "column",
-      color: "#333",
-    }}>
-      {/* 标题 */}
+    <div style={{ display: "flex", height: "100%" }}>
+      {/* 拖拽分隔条 */}
+      <div
+        onMouseDown={onMouseDown}
+        style={{
+          width: 5,
+          cursor: "col-resize",
+          background: isDragging.current ? "#7c3aed" : "transparent",
+          transition: "background 0.15s",
+          flexShrink: 0,
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "#7c3aed55"; }}
+        onMouseLeave={(e) => { if (!isDragging.current) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+      />
+
+      {/* 面板主体 */}
       <div style={{
-        padding: "16px 16px 12px",
-        borderBottom: "1px solid #e0e0d0",
+        width,
+        background: "#f8f8f0",
+        borderLeft: "1px solid #e0e0d0",
         display: "flex",
-        alignItems: "center",
-        gap: 8,
+        flexDirection: "column",
+        color: "#333",
+        flexShrink: 0,
       }}>
-        <span style={{ fontSize: 20 }}>🤖</span>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>AI 创作伙伴</span>
-      </div>
-
-      {/* 消息区 */}
-      <div ref={scrollRef} style={{ flex: 1, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-        {messages.length === 0 && (
-          <>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>你好，我是你的 AI 创作伙伴~</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {templates.map((t) => (
-                <button
-                  key={t.label}
-                  onClick={() => sendMessage(t.prompt)}
-                  style={{
-                    background: "#fff",
-                    border: "1px solid #ddd",
-                    borderRadius: 10,
-                    padding: "12px 10px",
-                    textAlign: "left",
-                    cursor: "pointer",
-                    transition: "border-color 0.2s",
-                  }}
-                >
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#333" }}>{t.label}</div>
-                  <div style={{ fontSize: 10, color: "#999", marginTop: 4 }}>{t.desc}</div>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            style={{
-              alignSelf: msg.role === "user" ? "flex-end" : "flex-start",
-              maxWidth: "85%",
-              background: msg.role === "user" ? "#7c3aed" : "#fff",
-              color: msg.role === "user" ? "#fff" : "#333",
-              borderRadius: 12,
-              padding: "8px 12px",
-              fontSize: 12,
-              lineHeight: 1.5,
-              border: msg.role === "assistant" ? "1px solid #ddd" : "none",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {msg.content}
+        {/* 标题 */}
+        <div style={{
+          padding: "12px 12px 10px",
+          borderBottom: "1px solid #e0e0d0",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 18 }}>🤖</span>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>AI 创作伙伴</span>
           </div>
-        ))}
-
-        {loading && (
-          <div style={{ fontSize: 12, color: "#999" }}>AI 正在思考...</div>
-        )}
-      </div>
-
-      {/* 输入区 */}
-      <div style={{ padding: 12, borderTop: "1px solid #e0e0d0" }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage(input);
-              }
-            }}
-            placeholder="输入你的创意..."
-            style={{
-              flex: 1,
-              minHeight: 40,
-              maxHeight: 100,
-              borderRadius: 10,
-              border: "1px solid #ddd",
-              padding: "8px 12px",
-              fontSize: 12,
-              resize: "none",
-              background: "#fff",
-              color: "#333",
-              outline: "none",
-            }}
-          />
           <button
-            onClick={() => sendMessage(input)}
-            disabled={loading}
+            onClick={onMinimize}
+            title="最小化"
             style={{
-              width: 36,
-              height: 36,
-              borderRadius: 20,
-              border: "none",
-              background: input.trim() ? "#7c3aed" : "#ddd",
-              color: "#fff",
-              fontSize: 16,
-              cursor: input.trim() ? "pointer" : "default",
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              border: "1px solid #ddd",
+              background: "#fff",
+              color: "#666",
+              fontSize: 14,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              lineHeight: 1,
             }}
           >
-            ↑
+            ✕
           </button>
+        </div>
+
+        {/* 消息区 */}
+        <div ref={scrollRef} style={{ flex: 1, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+          {messages.length === 0 && (
+            <>
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>你好，我是你的 AI 创作伙伴~</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {templates.map((t) => (
+                  <button
+                    key={t.label}
+                    onClick={() => sendMessage(t.prompt)}
+                    style={{
+                      background: "#fff",
+                      border: "1px solid #ddd",
+                      borderRadius: 10,
+                      padding: "12px 10px",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      transition: "border-color 0.2s",
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#333" }}>{t.label}</div>
+                    <div style={{ fontSize: 10, color: "#999", marginTop: 4 }}>{t.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {messages.map((msg, i) => (
+            <div
+              key={i}
+              style={{
+                alignSelf: msg.role === "user" ? "flex-end" : "flex-start",
+                maxWidth: "85%",
+                background: msg.role === "user" ? "#7c3aed" : "#fff",
+                color: msg.role === "user" ? "#fff" : "#333",
+                borderRadius: 12,
+                padding: "8px 12px",
+                fontSize: 12,
+                lineHeight: 1.5,
+                border: msg.role === "assistant" ? "1px solid #ddd" : "none",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {msg.content}
+            </div>
+          ))}
+
+          {loading && (
+            <div style={{ fontSize: 12, color: "#999" }}>AI 正在思考...</div>
+          )}
+        </div>
+
+        {/* 输入区 */}
+        <div style={{ padding: 12, borderTop: "1px solid #e0e0d0" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage(input);
+                }
+              }}
+              placeholder="输入你的创意..."
+              style={{
+                flex: 1,
+                minHeight: 40,
+                maxHeight: 100,
+                borderRadius: 10,
+                border: "1px solid #ddd",
+                padding: "8px 12px",
+                fontSize: 12,
+                resize: "none",
+                background: "#fff",
+                color: "#333",
+                outline: "none",
+              }}
+            />
+            <button
+              onClick={() => sendMessage(input)}
+              disabled={loading}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 20,
+                border: "none",
+                background: input.trim() ? "#7c3aed" : "#ddd",
+                color: "#fff",
+                fontSize: 16,
+                cursor: input.trim() ? "pointer" : "default",
+              }}
+            >
+              ↑
+            </button>
+          </div>
         </div>
       </div>
     </div>

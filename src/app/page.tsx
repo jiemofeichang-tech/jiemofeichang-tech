@@ -16,6 +16,9 @@ import TrashPage from "@/components/TrashPage";
 import AssetPage from "@/components/assets/AssetPage";
 import dynamic from "next/dynamic";
 const CanvasPage = dynamic(() => import("@/components/NodeCanvas/CanvasPage"), { ssr: false });
+const GridGeneratorView = dynamic(() => import("@/components/grid-generator/GridGeneratorView"), { ssr: false });
+const SceneGeneratorView = dynamic(() => import("@/components/grid-generator/SceneGeneratorView"), { ssr: false });
+const StoryboardGeneratorView = dynamic(() => import("@/components/grid-generator/StoryboardGeneratorView"), { ssr: false });
 import AuthGuard from "@/components/AuthGuard";
 import {
   authLogout,
@@ -143,11 +146,25 @@ export default function Home() {
               </div>
             )}
             {activeTab === "community" && <div key="community" className="tab-enter"><AssetPage /></div>}
-            {activeTab === "canvas" && <div key="canvas" className="tab-enter" style={{ marginLeft: 0, padding: 0 }}><CanvasPage /></div>}
             {activeTab === "trash" && <div key="trash" className="tab-enter"><TrashPage /></div>}
             {activeTab === "canvas" && (
               <div key="canvas-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 50 }}>
                 <CanvasPage />
+              </div>
+            )}
+            {activeTab === "grid" && (
+              <div key="grid-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 50 }}>
+                <GridGeneratorView />
+              </div>
+            )}
+            {activeTab === "scene-grid" && (
+              <div key="scene-grid-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 50 }}>
+                <SceneGeneratorView />
+              </div>
+            )}
+            {activeTab === "storyboard" && (
+              <div key="storyboard-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 50 }}>
+                <StoryboardGeneratorView />
               </div>
             )}
           </main>

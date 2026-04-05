@@ -12,6 +12,9 @@ const sidebarItems = [
   { id: "projects", label: "我的项目" },
   { id: "community", label: "我的资产" },
   { id: "canvas", label: "节点画布" },
+  { id: "grid", label: "表情网格" },
+  { id: "scene-grid", label: "场景网格" },
+  { id: "storyboard", label: "分镜网格" },
 ];
 
 function HomeIcon({ active }: { active: boolean }) {
@@ -41,6 +44,39 @@ function AssetIcon() {
   );
 }
 
+function StoryboardIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="20" height="18" rx="2" />
+      <line x1="8" y1="3" x2="8" y2="21" />
+      <line x1="16" y1="3" x2="16" y2="21" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+    </svg>
+  );
+}
+
+function SceneGridIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 15l4-4a2 2 0 012.8 0L14 15" />
+      <path d="M14 13l1.5-1.5a2 2 0 012.8 0L21 14" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+    </svg>
+  );
+}
+
+function GridIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  );
+}
+
 function CanvasIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -58,6 +94,9 @@ const iconMap: Record<string, (active: boolean) => React.ReactNode> = {
   projects: () => <FolderIcon />,
   community: () => <AssetIcon />,
   canvas: () => <CanvasIcon />,
+  grid: () => <GridIcon />,
+  "scene-grid": () => <SceneGridIcon />,
+  storyboard: () => <StoryboardIcon />,
 };
 
 export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {

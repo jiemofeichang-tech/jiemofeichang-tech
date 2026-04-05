@@ -8,6 +8,7 @@ interface CanvasToolbarProps {
 
 const tools = [
   { icon: "📝", label: "剧本", type: "scriptCard", row: "script" as const },
+  { icon: "🎭", label: "风格", type: "stylePresetCard", row: "script" as const },
   { icon: "🧑", label: "角色", type: "characterCard", row: "character" as const },
   { icon: "🏞️", label: "场景", type: "sceneCard", row: "scene" as const },
   { icon: "🖼️", label: "分镜", type: "storyboardCard", row: "storyboard" as const },
