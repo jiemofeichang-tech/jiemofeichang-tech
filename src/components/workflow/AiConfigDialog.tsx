@@ -12,6 +12,9 @@ export default function AiConfigDialog({ open, onClose }: AiConfigDialogProps) {
   const [imageBase, setImageBase] = useState("");
   const [chatModel, setChatModel] = useState("");
   const [imageModel, setImageModel] = useState("");
+  const [oaiImageBase, setOaiImageBase] = useState("");
+  const [oaiImageModel, setOaiImageModel] = useState("");
+  const [oaiImageKey, setOaiImageKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -24,6 +27,8 @@ export default function AiConfigDialog({ open, onClose }: AiConfigDialogProps) {
         setImageBase(ai.imageBase || "");
         setChatModel(ai.chatModel || "");
         setImageModel(ai.imageModel || "");
+        setOaiImageBase(ai.oaiImageBase || "");
+        setOaiImageModel(ai.oaiImageModel || "");
       }
     }).catch(() => {});
   }, [open]);
@@ -39,6 +44,9 @@ export default function AiConfigDialog({ open, onClose }: AiConfigDialogProps) {
         aiImageBase: imageBase,
         aiChatModel: chatModel,
         aiImageModel: imageModel,
+        oaiImageBase: oaiImageBase,
+        oaiImageModel: oaiImageModel,
+        oaiImageKey: oaiImageKey,
       } as Record<string, string>);
       setMessage("配置已保存");
       setTimeout(onClose, 1000);
@@ -146,6 +154,73 @@ export default function AiConfigDialog({ open, onClose }: AiConfigDialogProps) {
             value={imageModel}
             onChange={(e) => setImageModel(e.target.value)}
             placeholder="imagen-4.0-generate-001"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "1px solid #444",
+              background: "#252535",
+              color: "#e0e0e0",
+              fontSize: 13,
+            }}
+          />
+        </div>
+
+        <div style={{ margin: "16px 0 8px", borderTop: "1px solid #333", paddingTop: 16 }}>
+          <h4 style={{ color: "#c084fc", fontSize: 13, marginBottom: 12, fontWeight: 600 }}>
+            OAI 图像中转（可选，配置后优先使用）
+          </h4>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>
+            中转 Base URL
+          </label>
+          <input
+            value={oaiImageBase}
+            onChange={(e) => setOaiImageBase(e.target.value)}
+            placeholder="https://new.apipudding.com"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "1px solid #444",
+              background: "#252535",
+              color: "#e0e0e0",
+              fontSize: 13,
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>
+            中转图像模型名称
+          </label>
+          <input
+            value={oaiImageModel}
+            onChange={(e) => setOaiImageModel(e.target.value)}
+            placeholder="[官逆E]Nano banana pro"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "1px solid #444",
+              background: "#252535",
+              color: "#e0e0e0",
+              fontSize: 13,
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>
+            中转 API Key
+          </label>
+          <input
+            value={oaiImageKey}
+            onChange={(e) => setOaiImageKey(e.target.value)}
+            placeholder="sk-..."
+            type="password"
             style={{
               width: "100%",
               padding: "8px 12px",

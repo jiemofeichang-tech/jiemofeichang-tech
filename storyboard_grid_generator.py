@@ -199,14 +199,63 @@ def _parse_ai_json(text: str) -> dict:
 # Step 1: Storyboard Analysis
 # ---------------------------------------------------------------------------
 
+def _analyze_via_oai_chat(ref_b64: str, mime_type: str, system_prompt: str, chat_base: str, chat_model: str, chat_key: str) -> dict:
+    """Analyze image via OAI-compatible chat endpoint, routed through Next.js proxy."""
+    import urllib.request as _ureq
+
+    data_uri = f"data:{mime_type};base64,{ref_b64}"
+    messages = [
+        {"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": data_uri}},
+            {"type": "text", "text": system_prompt},
+        ]},
+    ]
+
+    # Route through Next.js proxy (Node.js fetch bypasses Cloudflare/proxy issues)
+    proxy_payload = {
+        "baseUrl": chat_base,
+        "model": chat_model,
+        "apiKey": chat_key,
+        "messages": messages,
+    }
+
+    body = json.dumps(proxy_payload, ensure_ascii=False).encode("utf-8")
+    req = _ureq.Request("http://127.0.0.1:3001/api/oai-chat-proxy", data=body, headers={
+        "Content-Type": "application/json",
+    })
+    opener = _ureq.build_opener(_ureq.ProxyHandler({}))
+    with opener.open(req, timeout=280) as resp:
+        result = json.loads(resp.read().decode("utf-8"))
+
+    if "error" in result:
+        raise RuntimeError(result["error"])
+
+    text = result.get("content", "")
+    if not text:
+        raise RuntimeError("AI 未返回分析结果")
+    return _parse_ai_json(text)
+
+
 def analyze_storyboard(ref_b64: str, mime_type: str, grid_size: int, gemini_request_fn: Any) -> dict:
     """Analyze reference image and generate storyboard plan."""
-    from server import STATE, GEMINI_BASE
-
-    model = STATE.get("ai_image_model") or "gemini-2.5-pro"
-    base = STATE.get("ai_image_base") or GEMINI_BASE
+    from server import STATE, GEMINI_BASE, get_api_key
 
     prompt = ANALYSIS_PROMPTS.get(grid_size, STORYBOARD_ANALYSIS_PROMPT_9)
+
+    # Use ycapis (ai_chat_base + ai_chat_model + api_key) for analysis via Next.js proxy
+    chat_base = (STATE.get("ai_chat_base") or "").strip()
+    chat_model = (STATE.get("ai_chat_model") or "").strip()
+    api_key = get_api_key()
+
+    if chat_base and chat_model and api_key:
+        try:
+            return _analyze_via_oai_chat(ref_b64, mime_type, prompt, chat_base, chat_model, api_key)
+        except Exception as e:
+            print(f"[storyboard] OAI chat analysis failed: {e}, falling back to Gemini", flush=True)
+
+    # Fallback: Gemini native
+    model = STATE.get("ai_image_model") or "gemini-2.5-pro"
+    base = STATE.get("ai_image_base") or GEMINI_BASE
 
     parts = [
         {"inlineData": {"mimeType": mime_type, "data": ref_b64}},
@@ -423,6 +472,10 @@ def _storyboard_worker(
     reference_images = [{"data": ref_b64, "mimeType": mime_type}]
 
     for i, frame in enumerate(frames):
+        # Rate limit: wait between requests to avoid API throttling (429)
+        if i > 0:
+            time.sleep(5)
+
         prompt = build_frame_prompt(analysis, frame, aspect_ratio)
 
         try:

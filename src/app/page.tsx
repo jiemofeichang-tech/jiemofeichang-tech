@@ -153,17 +153,17 @@ export default function Home() {
               </div>
             )}
             {activeTab === "grid" && (
-              <div key="grid-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 50 }}>
+              <div key="grid-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 100 }}>
                 <GridGeneratorView />
               </div>
             )}
             {activeTab === "scene-grid" && (
-              <div key="scene-grid-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 50 }}>
+              <div key="scene-grid-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 100 }}>
                 <SceneGeneratorView />
               </div>
             )}
             {activeTab === "storyboard" && (
-              <div key="storyboard-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 50 }}>
+              <div key="storyboard-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 100 }}>
                 <StoryboardGeneratorView />
               </div>
             )}

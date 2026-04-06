@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import GridUploader from "./GridUploader";
 import StoryboardAnalysisPanel from "./StoryboardAnalysisPanel";
 import StoryboardDisplay from "./StoryboardDisplay";
+import ModelSwitcher from "./ModelSwitcher";
 
 interface RefImage {
   base64: string;
@@ -45,43 +46,43 @@ export default function StoryboardGeneratorView() {
     setJobId(null);
   }, []);
 
-  const cols = gridSize === 9 ? 3 : 5;
-
   return (
     <div className="h-full overflow-auto bg-[#0a0f1a] text-white flex flex-col">
-      <header className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-        <h1 className="text-lg font-semibold">分镜网格生成器</h1>
-        {step !== "upload" && (
-          <button onClick={handleReset} className="px-4 py-2 text-sm bg-white/10 hover:bg-white/20 rounded-lg transition">
-            重新开始
-          </button>
-        )}
-      </header>
-
-      {/* Steps */}
-      <div className="flex items-center justify-center gap-2 py-4">
-        {(["upload", "config", "analyze", "generate"] as const).map((s, i) => {
-          const labels = ["上传参考图", "选择规格", "AI 分析 & 编辑", "生成分镜"];
-          const isActive = s === step;
-          const stepOrder = ["upload", "config", "analyze", "generate"];
-          const currentIdx = stepOrder.indexOf(step);
-          const isDone = stepOrder.indexOf(s) < currentIdx;
-          return (
-            <div key={s} className="flex items-center gap-2">
-              {i > 0 && <div className="w-6 h-px bg-white/20" />}
-              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
-                isActive ? "bg-purple-500/20 text-purple-400 border border-purple-500/40"
-                : isDone ? "bg-green-500/20 text-green-400"
-                : "bg-white/5 text-white/40"
-              }`}>
-                <span className="w-5 h-5 flex items-center justify-center rounded-full bg-white/10 text-xs">
-                  {isDone ? "\u2713" : i + 1}
-                </span>
-                {labels[i]}
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-6 py-3 border-b border-white/10 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-white/80 mr-3">分镜网格</h2>
+          {(["upload", "config", "analyze", "generate"] as const).map((s, i) => {
+            const labels = ["上传参考图", "选择规格", "AI 分析 & 编辑", "生成分镜"];
+            const isActive = s === step;
+            const stepOrder = ["upload", "config", "analyze", "generate"];
+            const currentIdx = stepOrder.indexOf(step);
+            const isDone = stepOrder.indexOf(s) < currentIdx;
+            return (
+              <div key={s} className="flex items-center gap-1.5">
+                {i > 0 && <div className="w-4 h-px bg-white/20" />}
+                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs ${
+                  isActive ? "bg-purple-500/20 text-purple-400 border border-purple-500/40"
+                  : isDone ? "bg-green-500/20 text-green-400"
+                  : "bg-white/5 text-white/40"
+                }`}>
+                  <span className="w-4 h-4 flex items-center justify-center rounded-full bg-white/10 text-[10px]">
+                    {isDone ? "\u2713" : i + 1}
+                  </span>
+                  {labels[i]}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-2">
+          <ModelSwitcher />
+          {step !== "upload" && (
+            <button onClick={handleReset} className="px-3 py-1.5 text-xs bg-white/10 hover:bg-white/20 rounded-lg transition">
+              重新开始
+            </button>
+          )}
+        </div>
       </div>
 
       <main className="max-w-6xl mx-auto px-6 py-6 flex-1 flex flex-col justify-center w-full">

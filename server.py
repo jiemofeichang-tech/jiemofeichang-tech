@@ -500,6 +500,9 @@ STATE = {
     "jimeng_access_key": LOCAL_CONFIG.get("jimeng_access_key", ""),
     "jimeng_secret_key": LOCAL_CONFIG.get("jimeng_secret_key", ""),
     "ai_video_provider": LOCAL_CONFIG.get("ai_video_provider", ""),
+    "oai_image_base": LOCAL_CONFIG.get("oai_image_base", ""),
+    "oai_image_model": LOCAL_CONFIG.get("oai_image_model", ""),
+    "oai_image_key": LOCAL_CONFIG.get("oai_image_key", ""),
 }
 
 
@@ -601,15 +604,78 @@ def _gemini_request(url: str, payload: dict | None = None, method: str = "POST",
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _oai_generate_image(prompt: str, aspect_ratio: str = "1:1", reference_images: list[dict] | None = None) -> list[dict]:
+    """
+    Generate image via OpenAI-compatible chat endpoint (e.g. apipudding relay).
+    Uses OAI_IMAGE_BASE + OAI_IMAGE_MODEL + OAI_IMAGE_KEY from STATE.
+    Returns list of {"bytesBase64Encoded": ..., "mimeType": ...} (same format as Gemini).
+    """
+    oai_base = (STATE.get("oai_image_base") or "").rstrip("/")
+    oai_model = STATE.get("oai_image_model") or ""
+    oai_key = STATE.get("oai_image_key") or ""
+    if not oai_base or not oai_model or not oai_key:
+        raise RuntimeError("OAI 图像中转未配置 (oai_image_base / oai_image_model / oai_image_key)")
+
+    # Build message content
+    content_parts: list = []
+    if reference_images:
+        for ref in reference_images:
+            mime = ref.get("mimeType", "image/png")
+            data_uri = f"data:{mime};base64,{ref['data']}"
+            content_parts.append({"type": "image_url", "image_url": {"url": data_uri}})
+        content_parts.append({"type": "text", "text": (
+            "CRITICAL: Follow the reference images above exactly. "
+            "Same character, face, hairstyle, clothing, art style. "
+            f"Generate: {prompt}"
+        )})
+    else:
+        content_parts = prompt  # type: ignore[assignment]
+
+    url = f"{oai_base}/v1/chat/completions"
+    payload = {
+        "model": oai_model,
+        "messages": [{"role": "user", "content": content_parts}],
+    }
+
+    # Route through Next.js API proxy (Node.js fetch bypasses Cloudflare bot detection)
+    proxy_url = "http://127.0.0.1:3001/api/oai-image-proxy"
+    proxy_payload = {
+        "oaiBase": oai_base,
+        "oaiModel": oai_model,
+        "oaiKey": oai_key,
+        "prompt": prompt,
+        "referenceImages": reference_images or [],
+    }
+    body = json.dumps(proxy_payload, ensure_ascii=False).encode("utf-8")
+    req = request.Request(proxy_url, data=body, headers={
+        "Content-Type": "application/json",
+    })
+    opener = request.build_opener(request.ProxyHandler({}))
+    with opener.open(req, timeout=300) as resp:
+        proxy_result = json.loads(resp.read().decode("utf-8"))
+
+    if "error" in proxy_result:
+        raise RuntimeError(proxy_result["error"])
+
+    images = proxy_result.get("images", [])
+    if not images:
+        raise RuntimeError("OAI 中转未返回图片")
+    return images
+
+
 def _gemini_generate_image(prompt: str, aspect_ratio: str = "1:1", count: int = 1, reference_images: list[dict] | None = None) -> list[dict]:
     """
-    Call Gemini image generation API.
-    Supports both:
-      - Imagen models (predict endpoint) → returns predictions[].bytesBase64Encoded
-      - generateContent models (nano-banana, gemini-*-image) → returns candidates[].content.parts[].inlineData
-    reference_images: list of {"data": base64_str, "mimeType": "image/png"} for character anchoring.
+    Call image generation API.
+    If OAI relay is configured (oai_image_base), uses OAI chat endpoint.
+    Otherwise falls back to Gemini native API.
     Returns list of {"bytesBase64Encoded": ..., "mimeType": ...}.
     """
+    # Check if OAI relay is configured — use it if so
+    oai_base = (STATE.get("oai_image_base") or "").strip()
+    oai_model = (STATE.get("oai_image_model") or "").strip()
+    if oai_base and oai_model:
+        return _oai_generate_image(prompt, aspect_ratio, reference_images)
+
     model = STATE.get("ai_image_model") or "nano-banana-pro-preview"
     base = STATE.get("ai_image_base") or GEMINI_BASE
 
@@ -654,9 +720,18 @@ def _gemini_generate_image(prompt: str, aspect_ratio: str = "1:1", count: int = 
         )})
     else:
         parts.append({"text": prompt})
+    # Map aspect_ratio to Gemini format
+    ar_gemini_map = {
+        "1:1": "1:1", "16:9": "16:9", "9:16": "9:16",
+        "3:4": "3:4", "4:3": "4:3",
+    }
+    gemini_ar = ar_gemini_map.get(aspect_ratio, None)
+    gen_config: dict[str, Any] = {"responseModalities": ["IMAGE"]}
+    if gemini_ar:
+        gen_config["aspectRatio"] = gemini_ar
     payload = {
         "contents": [{"parts": parts}],
-        "generationConfig": {"responseModalities": ["IMAGE"]},
+        "generationConfig": gen_config,
     }
     result = _gemini_request(url, payload, timeout=300)
 
@@ -1748,6 +1823,12 @@ class AppHandler(BaseHTTPRequestHandler):
         if sb_job_match:
             return self._handle_storyboard_job_status(sb_job_match.group(1))
 
+        # OAI key endpoint (for browser-side analysis)
+        if path == "/api/grid/oai-key":
+            return self.send_json(HTTPStatus.OK, {
+                "oai_image_key": STATE.get("oai_image_key", ""),
+            })
+
         # Grid generator asset serving
         grid_asset_match = _re_mod.match(r"^/api/grid/assets/([^/]+)/([^/]+)$", path)
         if grid_asset_match:
@@ -1782,6 +1863,9 @@ class AppHandler(BaseHTTPRequestHandler):
                         "geminiEnabled": _is_gemini_mode(),
                         "jimengEnabled": _is_jimeng_mode(),
                         "videoProvider": "jimeng" if _is_jimeng_mode() else ("gemini" if _is_gemini_mode() else "upstream"),
+                        "oaiImageBase": STATE.get("oai_image_base", ""),
+                        "oaiImageModel": STATE.get("oai_image_model", ""),
+                        "oaiImageEnabled": bool(STATE.get("oai_image_base")) and bool(STATE.get("oai_image_model")),
                     },
                 },
             )
@@ -2483,6 +2567,9 @@ class AppHandler(BaseHTTPRequestHandler):
         ai_chat_model = data.get("aiChatModel") or STATE.get("ai_chat_model", "gemini-2.5-pro")
         ai_image_model = data.get("aiImageModel") or STATE.get("ai_image_model", "nano-banana-pro-preview")
         ai_video_provider = data.get("aiVideoProvider") if "aiVideoProvider" in data else STATE.get("ai_video_provider", "")
+        oai_image_base = data.get("oaiImageBase") if "oaiImageBase" in data else STATE.get("oai_image_base", "")
+        oai_image_model = data.get("oaiImageModel") if "oaiImageModel" in data else STATE.get("oai_image_model", "")
+        oai_image_key = data.get("oaiImageKey") if "oaiImageKey" in data else STATE.get("oai_image_key", "")
 
         STATE.update(
             {
@@ -2495,6 +2582,9 @@ class AppHandler(BaseHTTPRequestHandler):
                 "ai_chat_model": ai_chat_model,
                 "ai_image_model": ai_image_model,
                 "ai_video_provider": ai_video_provider,
+                "oai_image_base": oai_image_base,
+                "oai_image_model": oai_image_model,
+                "oai_image_key": oai_image_key,
             }
         )
         persisted_config = load_local_config()
@@ -2511,6 +2601,9 @@ class AppHandler(BaseHTTPRequestHandler):
                 "ai_chat_model": ai_chat_model,
                 "ai_image_model": ai_image_model,
                 "ai_video_provider": ai_video_provider,
+                "oai_image_base": oai_image_base,
+                "oai_image_model": oai_image_model,
+                "oai_image_key": oai_image_key,
             }
         )
         persist_local_config(persisted_config)

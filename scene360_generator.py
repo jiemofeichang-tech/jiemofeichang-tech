@@ -192,11 +192,58 @@ def _parse_ai_json(text: str) -> dict:
 # Step 1: Scene Analysis
 # ---------------------------------------------------------------------------
 
-def analyze_scene(ref_b64: str, mime_type: str, gemini_request_fn: Any) -> dict:
-    """Analyze a reference image using Gemini vision. Returns structured analysis."""
-    from server import STATE, _get_gemini_key, GEMINI_BASE
+def _analyze_via_oai_chat(ref_b64: str, mime_type: str, system_prompt: str, chat_base: str, chat_model: str, chat_key: str) -> dict:
+    """Analyze image via OAI-compatible chat endpoint, routed through Next.js proxy."""
+    import urllib.request as _ureq
 
-    # Use image model for vision analysis (it supports generateContent with images)
+    data_uri = f"data:{mime_type};base64,{ref_b64}"
+    messages = [
+        {"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": data_uri}},
+            {"type": "text", "text": system_prompt},
+        ]},
+    ]
+
+    proxy_payload = {
+        "baseUrl": chat_base,
+        "model": chat_model,
+        "apiKey": chat_key,
+        "messages": messages,
+    }
+
+    body = json.dumps(proxy_payload, ensure_ascii=False).encode("utf-8")
+    req = _ureq.Request("http://127.0.0.1:3001/api/oai-chat-proxy", data=body, headers={
+        "Content-Type": "application/json",
+    })
+    opener = _ureq.build_opener(_ureq.ProxyHandler({}))
+    with opener.open(req, timeout=280) as resp:
+        result = json.loads(resp.read().decode("utf-8"))
+
+    if "error" in result:
+        raise RuntimeError(result["error"])
+
+    text = result.get("content", "")
+    if not text:
+        raise RuntimeError("AI 未返回分析结果")
+    return _parse_ai_json(text)
+
+
+def analyze_scene(ref_b64: str, mime_type: str, gemini_request_fn: Any) -> dict:
+    """Analyze a reference image. Tries OAI chat first, falls back to Gemini."""
+    from server import STATE, GEMINI_BASE, get_api_key
+
+    # Use ycapis for analysis via Next.js proxy
+    chat_base = (STATE.get("ai_chat_base") or "").strip()
+    chat_model = (STATE.get("ai_chat_model") or "").strip()
+    api_key = get_api_key()
+
+    if chat_base and chat_model and api_key:
+        try:
+            return _analyze_via_oai_chat(ref_b64, mime_type, SCENE_360_ANALYSIS_PROMPT, chat_base, chat_model, api_key)
+        except Exception as e:
+            print(f"[scene360] OAI chat analysis failed: {e}, falling back to Gemini", flush=True)
+
+    # Fallback: Gemini native
     model = STATE.get("ai_image_model") or "gemini-2.5-pro"
     base = STATE.get("ai_image_base") or GEMINI_BASE
 
@@ -447,6 +494,9 @@ def _scene360_worker(
     reference_images = [{"data": ref_b64, "mimeType": mime_type}]
 
     for i, view in enumerate(views):
+        if i > 0:
+            time.sleep(5)
+
         prompt = build_view_prompt(analysis, view, aspect_ratio)
 
         try:

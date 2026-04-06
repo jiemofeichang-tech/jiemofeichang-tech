@@ -933,22 +933,42 @@ export interface Scene360JobStatus {
 export async function scene360Analyze(payload: {
   reference_image: string;
 }): Promise<Scene360Analysis> {
-  // Direct call to backend to avoid Next.js proxy timeout/size limits for large images
-  const backendBase = "http://127.0.0.1:8787";
-  const res = await fetch(`${backendBase}/api/grid/scene360/analyze`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    credentials: "include",
-    signal: AbortSignal.timeout(120_000),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = (data as Record<string, unknown>).error;
-    throw new Error(typeof msg === "string" ? msg : `请求失败：${res.status}`);
+  // Try direct OAI relay from browser first
+  try {
+    const keyRes = await api<{ oai_image_key: string }>("/api/grid/oai-key");
+    const config = await fetchConfig();
+    const ai = (config as unknown as Record<string, unknown>).aiConfig as Record<string, string> | undefined;
+    const oaiBase = ai?.oaiImageBase || "";
+    const key = keyRes.oai_image_key;
+
+    if (oaiBase && key) {
+      const content = await _oaiBrowserChat(oaiBase, key, "[官逆C]gemini-3-flash-preview", payload.reference_image, SCENE_360_ANALYSIS_PROMPT);
+      return _parseAiJson<Scene360Analysis>(content);
+    }
+  } catch (e) {
+    console.warn("[scene360] Browser OAI analysis failed, falling back:", e);
   }
-  return data as Scene360Analysis;
+
+  // Fallback: server-side
+  const startRes = await api<{ job_id: string }>("/api/grid/scene360/analyze", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  const maxWait = Date.now() + 120_000;
+  while (Date.now() < maxWait) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const job = await api<{ status: string; result?: Scene360Analysis; error?: string }>(`/api/ai/image/job/${startRes.job_id}`);
+    if (job.status === "done" && job.result) return job.result;
+    if (job.status === "error") throw new Error(job.error || "分析失败");
+  }
+  throw new Error("AI 分析超时");
 }
+
+const SCENE_360_ANALYSIS_PROMPT = `你是一个专业的场景空间分析师和图像prompt工程师。分析参考图片，完成画风锚定、场景信息、360°视图画面描述。
+为6个方向各写一段完整的英文image_prompt（可直接用于AI绘画）。
+输出JSON格式:
+{"style_anchor":{"rendering_type":"","material_aging":"","texture_density":"","surface_wear":"","vegetation":"","color_style":"","lighting":"","atmosphere":""},"scene_info":{"scene_type":"","ref_angle":"","observer_position":"","covered_fov":"","main_light":"","time_of_day":""},"spatial_elements":[{"direction":"0°(正前方)","visible":[],"inferred":[],"reasoning":"","image_prompt":"English scene description 50-80 words"},{"direction":"90°(右侧)","visible":[],"inferred":[],"reasoning":"","image_prompt":""},{"direction":"180°(后方)","visible":[],"inferred":[],"reasoning":"","image_prompt":""},{"direction":"270°(左侧)","visible":[],"inferred":[],"reasoning":"","image_prompt":""},{"direction":"up(上方)","visible":[],"inferred":[],"reasoning":"","image_prompt":""},{"direction":"down(下方)","visible":[],"inferred":[],"reasoning":"","image_prompt":""}]}
+仅输出JSON。`;
 
 export async function scene360Generate(payload: {
   reference_image: string;
@@ -1031,14 +1051,32 @@ export async function storyboardAnalyze(payload: {
   reference_image: string;
   grid_size: 9 | 25;
 }): Promise<StoryboardAnalysis> {
-  // Step 1: Submit async analysis job
+  // Try direct OAI relay from browser first (bypasses proxy issues)
+  const config = await fetchConfig();
+  const ai = (config as unknown as Record<string, unknown>).aiConfig as Record<string, string> | undefined;
+  const oaiBase = ai?.oaiImageBase || "";
+  const oaiKey = (config as unknown as Record<string, Record<string, string>>).aiConfig?.oaiImageKey || "";
+
+  if (oaiBase) {
+    // Get the key from server config (stored in .local-secrets.json)
+    const keyRes = await api<{ oai_image_key: string }>("/api/grid/oai-key");
+    const key = keyRes.oai_image_key;
+    if (key) {
+      try {
+        return await _analyzeViaOai(payload, oaiBase, key);
+      } catch (e) {
+        console.warn("[storyboard] Browser OAI analysis failed, falling back to server:", e);
+      }
+    }
+  }
+
+  // Fallback: server-side analysis (async job)
   const startRes = await api<{ job_id: string; status: string }>("/api/grid/storyboard/analyze", {
     method: "POST",
     body: JSON.stringify(payload),
   });
   const { job_id } = startRes;
 
-  // Step 2: Poll until done (reuse image job status endpoint)
   const maxWaitMs = 120_000;
   const pollInterval = 2000;
   const deadline = Date.now() + maxWaitMs;
@@ -1054,6 +1092,84 @@ export async function storyboardAnalyze(payload: {
     if (jobRes.status === "error") throw new Error(jobRes.error || "AI 分析失败");
   }
   throw new Error("AI 分析超时");
+}
+
+/** Compress an image data URL to max 100x100 JPEG for analysis (reduces payload size) */
+async function _compressImageForAnalysis(dataUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 100;
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (w > MAX || h > MAX) {
+        const scale = MAX / Math.max(w, h);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+      }
+      const cv = document.createElement("canvas");
+      cv.width = w; cv.height = h;
+      cv.getContext("2d")!.drawImage(img, 0, 0, w, h);
+      resolve(cv.toDataURL("image/jpeg", 0.7));
+    };
+    img.onerror = () => resolve(dataUrl); // fallback to original
+    img.src = dataUrl;
+  });
+}
+
+/** Call OAI chat API directly from browser */
+async function _oaiBrowserChat(
+  oaiBase: string, oaiKey: string, model: string,
+  imageDataUrl: string, textPrompt: string,
+): Promise<string> {
+  const compressed = await _compressImageForAnalysis(imageDataUrl);
+  const url = `${oaiBase.replace(/\/+$/, "")}/v1/chat/completions`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${oaiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: compressed } },
+          { type: "text", text: textPrompt },
+        ],
+      }],
+      max_tokens: 8000,
+    }),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!res.ok) throw new Error(`OAI API error: ${res.status}`);
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content || "";
+  if (!content) throw new Error("AI 未返回内容");
+  return content;
+}
+
+/** Parse JSON from AI text response (handles fenced markdown) */
+function _parseAiJson<T>(text: string): T {
+  const jsonMatch = text.match(/```json\s*([\s\S]*?)```/) || text.match(/\{[\s\S]*\}/);
+  const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : text;
+  return JSON.parse(jsonStr.trim());
+}
+
+async function _analyzeViaOai(
+  payload: { reference_image: string; grid_size: 9 | 25 },
+  oaiBase: string,
+  oaiKey: string,
+): Promise<StoryboardAnalysis> {
+  const gridSize = payload.grid_size;
+  const structureDesc = gridSize === 9
+    ? "三段式: P1-P3 Setup, P4-P6 Action, P7-P9 Resolution"
+    : "五段式: P1-P5 Prologue, P6-P10 Setup, P11-P15 Confrontation, P16-P20 Climax, P21-P25 Resolution";
+
+  const systemPrompt = `你是一位电影摄影指导。分析参考图片，设计${gridSize}帧分镜。结构: ${structureDesc}。
+输出JSON格式:
+{"style_anchor":{"rendering_type":"","color_style":"","lighting":"","atmosphere":""},"story":{"subject":"","narrative":"","time_span":"","emotion_curve":""},"frames":[{"id":"P1","act":"Setup","shot_type":"Wide Shot","description":"中文描述","image_prompt":"English prompt 50-80 words"}]}
+image_prompt必须是完整英文画面描述，禁止角度数字。仅输出JSON。`;
+
+  const content = await _oaiBrowserChat(oaiBase, oaiKey, "[官逆C]gemini-3-flash-preview", payload.reference_image, systemPrompt);
+  return _parseAiJson<StoryboardAnalysis>(content);
 }
 
 export async function storyboardGenerate(payload: {
