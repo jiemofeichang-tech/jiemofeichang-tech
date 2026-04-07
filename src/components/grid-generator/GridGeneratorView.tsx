@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import GridUploader from "./GridUploader";
 import GridConfigPanel from "./GridConfigPanel";
 import GridDisplay from "./GridDisplay";
 import ModelSwitcher from "./ModelSwitcher";
+import { readJsonStorage, removeStorage, writeJsonStorage } from "@/lib/storage";
 
 interface RefImage {
   base64: string;
@@ -15,11 +16,26 @@ interface RefImage {
 
 type Step = "upload" | "config" | "generate";
 
+interface PersistedGridState {
+  step: Step;
+  refImage: RefImage | null;
+  gridSize: 9 | 25;
+  jobId: string | null;
+}
+
+const STORAGE_KEY = "jg:grid-generator";
+
 export default function GridGeneratorView() {
-  const [step, setStep] = useState<Step>("upload");
-  const [refImage, setRefImage] = useState<RefImage | null>(null);
-  const [gridSize, setGridSize] = useState<9 | 25>(9);
-  const [jobId, setJobId] = useState<string | null>(null);
+  const persisted = readJsonStorage<PersistedGridState>(STORAGE_KEY, {
+    step: "upload",
+    refImage: null,
+    gridSize: 9,
+    jobId: null,
+  });
+  const [step, setStep] = useState<Step>(persisted.step);
+  const [refImage, setRefImage] = useState<RefImage | null>(persisted.refImage);
+  const [gridSize, setGridSize] = useState<9 | 25>(persisted.gridSize);
+  const [jobId, setJobId] = useState<string | null>(persisted.jobId);
 
   const handleUpload = useCallback((image: RefImage) => {
     setRefImage(image);
@@ -36,7 +52,21 @@ export default function GridGeneratorView() {
     setStep("upload");
     setRefImage(null);
     setJobId(null);
+    removeStorage(STORAGE_KEY);
   }, []);
+
+  useEffect(() => {
+    if (step === "upload" && !refImage && !jobId) {
+      removeStorage(STORAGE_KEY);
+      return;
+    }
+    writeJsonStorage<PersistedGridState>(STORAGE_KEY, {
+      step,
+      refImage,
+      gridSize,
+      jobId,
+    });
+  }, [step, refImage, gridSize, jobId]);
 
   return (
     <div className="h-full overflow-auto bg-[#0a0f1a] text-white flex flex-col">

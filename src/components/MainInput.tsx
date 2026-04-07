@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { buildPayload, createTask, type GenerationParams, type TaskRecord } from "@/lib/api";
 import { STORY_TYPES } from "@/lib/prompt-system";
 import { styleCategories, styleItems as allStyles, type StyleCategory } from "@/lib/styles-data";
@@ -103,7 +103,6 @@ export default function MainInput({
 
   const applyUploadedFiles = useCallback(() => {
     if (uploadedFiles.length === 0) return;
-
     const names = uploadedFiles.map((file) => file.name.replace(/\.[^.]+$/, "")).join("、");
     setPrompt(`${prompt}${prompt ? "\n" : ""}【参考图片】${names}`);
     setShowUpload(false);
@@ -112,50 +111,53 @@ export default function MainInput({
   const storyTypeInfo = storyType ? STORY_TYPES.find((item) => item.id === storyType) : null;
 
   return (
-    <div data-home-hero="composer" style={{ width: "100%", maxWidth: "100%", margin: "0 auto", position: "relative" }}>
+    <div style={{ width: "100%", position: "relative" }}>
       <div
-        className=""
         style={{
           position: "absolute",
-          top: -26,
-          right: -6,
-          width: 82,
-          height: 82,
+          top: -10,
+          right: 20,
+          width: 64,
+          height: 64,
           zIndex: 2,
+          borderRadius: 22,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          filter: "drop-shadow(0 16px 26px rgba(0,0,0,0.28))",
+          background: "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.05))",
+          border: "1px solid rgba(255,255,255,0.12)",
+          backdropFilter: "blur(18px)",
+          boxShadow: "0 24px 48px rgba(0,0,0,0.2)",
         }}
       >
-        <img src="/assets/logo.png" alt="Logo" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+        <img src="/assets/logo.png" alt="Logo" style={{ width: 34, height: 34, objectFit: "contain" }} />
       </div>
 
       <div
         style={{
-          borderRadius: 4,
-          border: "2px solid var(--border)",
-          background: "var(--bg-card)",
+          borderRadius: 32,
+          border: "1px solid rgba(255,255,255,0.1)",
+          background: "linear-gradient(180deg, rgba(16,20,30,0.94), rgba(11,14,22,0.92))",
+          boxShadow: "0 34px 90px rgba(0,0,0,0.28)",
+          backdropFilter: "blur(24px)",
           overflow: "hidden",
-          transition: "border-color 0.3s, transform 0.3s",
-          boxShadow: "none",
         }}
       >
-        <div style={{ padding: "26px 28px 12px" }}>
+        <div style={{ padding: "30px 32px 14px" }}>
           {storyTypeInfo && (
             <div
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 6,
-                padding: "5px 12px",
-                borderRadius: 2,
-                backgroundColor: "rgba(212,98,42,0.15)",
-                border: "1px solid rgba(212,98,42,0.3)",
-                marginBottom: 12,
+                gap: 8,
+                marginBottom: 14,
+                padding: "7px 14px",
+                borderRadius: 999,
+                backgroundColor: "rgba(130,182,255,0.14)",
+                border: "1px solid rgba(130,182,255,0.2)",
+                color: "var(--accent-hot-pink)",
                 fontSize: 13,
-                color: "var(--accent-pink)",
-                fontWeight: 500,
+                fontWeight: 600,
               }}
             >
               <span>{storyTypeInfo.icon}</span>
@@ -164,17 +166,15 @@ export default function MainInput({
                 type="button"
                 onClick={onClearStoryType}
                 style={{
-                  marginLeft: 4,
-                  width: 18,
-                  height: 18,
-                  borderRadius: "50%",
+                  width: 20,
+                  height: 20,
+                  borderRadius: 999,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: "rgba(255,255,255,0.12)",
-                  color: "rgba(255,255,255,0.58)",
+                  color: "rgba(255,255,255,0.7)",
+                  background: "rgba(255,255,255,0.08)",
                   fontSize: 12,
-                  flexShrink: 0,
                 }}
               >
                 ×
@@ -195,89 +195,52 @@ export default function MainInput({
             rows={3}
             style={{
               width: "100%",
-              backgroundColor: "transparent",
               border: "none",
               outline: "none",
-              color: "rgba(255,255,255,0.94)",
-              fontSize: 17,
-              lineHeight: "29px",
               resize: "none",
+              background: "transparent",
+              color: "rgba(255,255,255,0.96)",
+              fontSize: 18,
+              lineHeight: "31px",
             }}
           />
         </div>
 
-        {error && (
-          <div style={{ padding: "0 24px 8px", color: "#ef4444", fontSize: 12 }}>{error}</div>
-        )}
+        {error && <div style={{ padding: "0 32px 10px", color: "#ff8a80", fontSize: 12 }}>{error}</div>}
 
         <div
           style={{
             display: "flex",
-            justifyContent: "space-between",
             alignItems: "center",
-            gap: 12,
-            padding: "12px 20px 20px",
-            borderTop: "1px solid rgba(255,255,255,0.06)",
-            background: "rgba(2,8,23,0.14)",
+            justifyContent: "space-between",
+            gap: 14,
+            padding: "16px 24px 24px",
+            borderTop: "1px solid rgba(255,255,255,0.08)",
+            background: "rgba(255,255,255,0.025)",
             flexWrap: "wrap",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <ToolBtn label="+" onClick={() => setShowUpload(true)} />
-            <ToolBtn icon={<DocIcon />} label="脚本输入" onClick={() => setShowScript(true)} />
-            <ToolBtn
-              icon={<span style={{ width: 14, height: 14, borderRadius: 2, background: "linear-gradient(135deg, #d4622a, #c49a3a, #e8783c)", display: "inline-block" }} />}
-              label="风格库"
-              onClick={() => setShowStyles(true)}
-            />
-            <ToolBtn icon={<AssetIcon />} label="我的资产" onClick={() => setShowAssets(true)} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <ToolButton label="添加素材" onClick={() => setShowUpload(true)} icon={<PlusIcon />} />
+            <ToolButton label="脚本输入" onClick={() => setShowScript(true)} icon={<DocIcon />} />
+            <ToolButton label="风格库" onClick={() => setShowStyles(true)} icon={<PaletteIcon />} />
+            <ToolButton label="我的资产" onClick={() => setShowAssets(true)} icon={<AssetIcon />} />
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div
               style={{
                 display: "flex",
-                borderRadius: 2,
-                overflow: "hidden",
-                backgroundColor: "var(--bg-input)",
-                padding: 3,
-                border: "1px solid var(--border)",
+                alignItems: "center",
+                gap: 4,
+                padding: 4,
+                borderRadius: 999,
+                backgroundColor: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(255,255,255,0.08)",
               }}
             >
-              <button
-                type="button"
-                onClick={() => setMode("managed")}
-                style={{
-                  padding: "7px 14px",
-                  fontSize: 14,
-                  fontWeight: 500,
-                  borderRadius: 2,
-                  color: mode === "managed" ? "var(--text-primary)" : "rgba(255,255,255,0.5)",
-                  backgroundColor: mode === "managed" ? "rgba(255,255,255,0.08)" : "var(--bg-hover)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  transition: "all 0.2s",
-                }}
-              >
-                <span style={{ color: "var(--accent-yellow)" }}>✦</span>
-                托管模式
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("chat")}
-                style={{
-                  padding: "7px 14px",
-                  fontSize: 14,
-                  fontWeight: 500,
-                  borderRadius: 2,
-                  color: mode === "chat" ? "var(--text-primary)" : "rgba(255,255,255,0.5)",
-                  backgroundColor: mode === "chat" ? "rgba(255,255,255,0.08)" : "var(--bg-hover)",
-                  transition: "all 0.2s",
-                }}
-              >
-                对话模式
-              </button>
+              <SegmentButton active={mode === "managed"} onClick={() => setMode("managed")} label="✦ 托管模式" />
+              <SegmentButton active={mode === "chat"} onClick={() => setMode("chat")} label="对话模式" />
             </div>
 
             <button
@@ -285,36 +248,29 @@ export default function MainInput({
               onClick={() => void handleSend()}
               disabled={!prompt.trim() || isSending}
               style={{
-                width: 48,
-                height: 48,
-                borderRadius: 4,
-                background: prompt.trim() && !isSending
-                  ? "linear-gradient(135deg, var(--accent-pink), var(--accent-orange))"
-                  : "rgba(255,255,255,0.08)",
+                width: 52,
+                height: 52,
+                borderRadius: 999,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                border: "1px solid rgba(255,255,255,0.1)",
+                background: prompt.trim() && !isSending
+                  ? "linear-gradient(180deg, rgba(130,182,255,0.38), rgba(77,132,255,0.22))"
+                  : "rgba(255,255,255,0.08)",
                 color: prompt.trim() ? "#fff" : "rgba(255,255,255,0.4)",
-                transition: "all 0.2s",
-                opacity: isSending ? 0.6 : 1,
-                boxShadow: prompt.trim() && !isSending ? "0 14px 28px rgba(255, 141, 77, 0.28)" : "none",
+                boxShadow: prompt.trim() && !isSending ? "0 18px 36px rgba(77,132,255,0.24)" : "none",
+                opacity: isSending ? 0.65 : 1,
               }}
             >
-              {isSending ? (
-                <span style={{ fontSize: 14 }}>···</span>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="19" x2="12" y2="5" />
-                  <polyline points="5 12 12 5 19 12" />
-                </svg>
-              )}
+              {isSending ? <span style={{ fontSize: 13 }}>···</span> : <ArrowUpIcon />}
             </button>
           </div>
         </div>
       </div>
 
       {showUpload && (
-        <ToolPopup onClose={() => setShowUpload(false)} title="上传参考图片">
+        <PopupShell onClose={() => setShowUpload(false)} title="上传参考图片">
           <div
             onClick={() => fileInputRef.current?.click()}
             onDrop={handleFileDrop}
@@ -324,21 +280,32 @@ export default function MainInput({
             }}
             onDragLeave={() => setIsDragging(false)}
             style={{
-              border: `2px dashed ${isDragging ? "var(--accent-pink)" : "rgba(255,255,255,0.12)"}`,
-              borderRadius: 2,
               padding: "40px 20px",
+              borderRadius: 24,
+              border: `1px dashed ${isDragging ? "rgba(130,182,255,0.4)" : "rgba(255,255,255,0.14)"}`,
+              background: isDragging ? "rgba(130,182,255,0.08)" : "rgba(255,255,255,0.02)",
               textAlign: "center",
-              transition: "border-color 0.2s, background 0.2s",
-              background: isDragging ? "rgba(255,180,84,0.08)" : "transparent",
             }}
           >
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.42)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 12 }}>
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-            <p style={{ fontSize: 14, color: "rgba(255,255,255,0.84)", marginBottom: 4 }}>拖拽图片到这里，或者点击选择</p>
-            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.48)" }}>支持 JPG、PNG、GIF、WebP，单张不超过 5MB，最多 5 张。</p>
+            <div
+              style={{
+                width: 52,
+                height: 52,
+                margin: "0 auto 12px",
+                borderRadius: 18,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+            >
+              <UploadIcon />
+            </div>
+            <div style={{ fontSize: 14, color: "rgba(255,255,255,0.88)" }}>拖拽图片到这里，或点击选择</div>
+            <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.7, color: "var(--text-muted)" }}>
+              支持 JPG、PNG、GIF、WebP，单张不超过 5MB，最多 5 张。
+            </div>
           </div>
 
           <input
@@ -351,17 +318,17 @@ export default function MainInput({
           />
 
           {uploadedFiles.length > 0 && (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 16 }}>
               {uploadedFiles.map((file) => (
                 <div
                   key={file.id}
                   style={{
                     position: "relative",
-                    width: 72,
-                    height: 72,
-                    borderRadius: 2,
+                    width: 78,
+                    height: 78,
+                    borderRadius: 20,
                     overflow: "hidden",
-                    border: "1px solid rgba(255,255,255,0.12)",
+                    border: "1px solid rgba(255,255,255,0.08)",
                   }}
                 >
                   <img src={file.data} alt={file.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -373,14 +340,13 @@ export default function MainInput({
                     }}
                     style={{
                       position: "absolute",
-                      top: 4,
-                      right: 4,
-                      width: 18,
-                      height: 18,
-                      borderRadius: "50%",
-                      background: "rgba(0,0,0,0.7)",
-                      color: "#fff",
-                      fontSize: 12,
+                      top: 6,
+                      right: 6,
+                      width: 22,
+                      height: 22,
+                      borderRadius: 999,
+                      background: "rgba(0,0,0,0.56)",
+                      color: "white",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -393,42 +359,15 @@ export default function MainInput({
             </div>
           )}
 
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
-            <button
-              type="button"
-              onClick={() => setShowUpload(false)}
-              style={{
-                padding: "8px 16px",
-                borderRadius: 2,
-                fontSize: 13,
-                color: "rgba(255,255,255,0.8)",
-                backgroundColor: "var(--bg-hover)",
-              }}
-            >
-              取消
-            </button>
-            {uploadedFiles.length > 0 && (
-              <button
-                type="button"
-                onClick={applyUploadedFiles}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: 2,
-                  fontSize: 13,
-                  color: "#fff",
-                  background: "linear-gradient(135deg, var(--accent-pink), var(--accent-orange))",
-                  fontWeight: 500,
-                }}
-              >
-                确认添加（{uploadedFiles.length}）
-              </button>
-            )}
-          </div>
-        </ToolPopup>
+          <PopupActions>
+            <GhostButton onClick={() => setShowUpload(false)}>取消</GhostButton>
+            {uploadedFiles.length > 0 && <PrimaryButton onClick={applyUploadedFiles}>确认添加</PrimaryButton>}
+          </PopupActions>
+        </PopupShell>
       )}
 
       {showScript && (
-        <ToolPopup onClose={() => setShowScript(false)} title="脚本输入">
+        <PopupShell onClose={() => setShowScript(false)} title="脚本输入">
           <textarea
             value={scriptText}
             onChange={(e) => setScriptText(e.target.value)}
@@ -436,10 +375,10 @@ export default function MainInput({
             style={{
               width: "100%",
               height: 220,
-              backgroundColor: "rgba(255,255,255,0.05)",
-              border: "1px solid var(--border)",
-              borderRadius: 2,
-              padding: 12,
+              padding: 14,
+              borderRadius: 22,
+              border: "1px solid rgba(255,255,255,0.08)",
+              background: "rgba(255,255,255,0.04)",
               color: "var(--text-primary)",
               fontSize: 13,
               lineHeight: "22px",
@@ -447,33 +386,18 @@ export default function MainInput({
               outline: "none",
             }}
           />
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
-            <button
-              type="button"
-              onClick={() => setShowScript(false)}
-              style={{ padding: "8px 16px", borderRadius: 2, fontSize: 13, color: "rgba(255,255,255,0.8)", backgroundColor: "var(--bg-hover)" }}
-            >
-              取消
-            </button>
-            <button
-              type="button"
+          <PopupActions>
+            <GhostButton onClick={() => setShowScript(false)}>取消</GhostButton>
+            <PrimaryButton
               onClick={() => {
                 if (scriptText.trim()) setPrompt(scriptText);
                 setShowScript(false);
               }}
-              style={{
-                padding: "8px 16px",
-                borderRadius: 10,
-                fontSize: 13,
-                color: "#fff",
-                background: "linear-gradient(135deg, var(--accent-pink), var(--accent-orange))",
-                fontWeight: 500,
-              }}
             >
               应用脚本
-            </button>
-          </div>
-        </ToolPopup>
+            </PrimaryButton>
+          </PopupActions>
+        </PopupShell>
       )}
 
       {showStyles && (
@@ -487,23 +411,31 @@ export default function MainInput({
       )}
 
       {showAssets && (
-        <ToolPopup onClose={() => setShowAssets(false)} title="我的资产">
+        <PopupShell onClose={() => setShowAssets(false)} title="我的资产">
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {assetGroups.map((group) => (
-              <div key={group.label} style={{ borderRadius: 2, border: "1px solid rgba(255,255,255,0.08)", overflow: "hidden" }}>
+              <div
+                key={group.label}
+                style={{
+                  borderRadius: 24,
+                  overflow: "hidden",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.03)",
+                }}
+              >
                 <div
                   style={{
-                    padding: "10px 14px",
-                    backgroundColor: "rgba(255,255,255,0.05)",
+                    padding: "12px 16px",
                     display: "flex",
-                    justifyContent: "space-between",
                     alignItems: "center",
+                    justifyContent: "space-between",
+                    background: "rgba(255,255,255,0.04)",
                   }}
                 >
                   <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{group.label}</span>
-                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.42)" }}>{group.items.length} 项</span>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{group.items.length} 项</span>
                 </div>
-                <div style={{ padding: "10px 14px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ padding: "14px 16px", display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {group.items.map((item) => (
                     <button
                       key={item}
@@ -513,12 +445,12 @@ export default function MainInput({
                         setShowAssets(false);
                       }}
                       style={{
-                        padding: "6px 10px",
-                        borderRadius: 2,
-                        backgroundColor: "var(--bg-hover)",
+                        padding: "8px 12px",
+                        borderRadius: 999,
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        background: "rgba(255,255,255,0.05)",
+                        color: "var(--text-secondary)",
                         fontSize: 12,
-                        color: "rgba(255,255,255,0.84)",
-                        border: "1px solid rgba(255,255,255,0.06)",
                       }}
                     >
                       {item}
@@ -528,7 +460,7 @@ export default function MainInput({
               </div>
             ))}
           </div>
-        </ToolPopup>
+        </PopupShell>
       )}
     </div>
   );
@@ -550,7 +482,7 @@ function StyleGallery({ onClose, onSelect }: { onClose: () => void; onSelect: (n
         inset: 0,
         zIndex: 1000,
         backgroundColor: "rgba(2,8,23,0.74)",
-        backdropFilter: "blur(10px)",
+        backdropFilter: "blur(18px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -559,38 +491,35 @@ function StyleGallery({ onClose, onSelect }: { onClose: () => void; onSelect: (n
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "var(--bg-panel)",
-          border: "1px solid var(--border)",
-          borderRadius: 4,
           width: "90vw",
           maxWidth: 1100,
           height: "85vh",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          boxShadow: "none",
+          borderRadius: 28,
+          border: "1px solid rgba(255,255,255,0.1)",
+          background: "rgba(15,18,26,0.94)",
+          boxShadow: "0 34px 100px rgba(0,0,0,0.34)",
+          backdropFilter: "blur(28px) saturate(150%)",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
-          <h3 style={{ fontSize: 18, fontWeight: 700, color: "var(--accent-pink)" }}>风格库</h3>
-          <button type="button" onClick={onClose} style={{ width: 32, height: 32, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.5)", fontSize: 20, backgroundColor: "var(--bg-hover)" }}>×</button>
-        </div>
+        <PopupHeader title="风格库" onClose={onClose} />
 
-        <div style={{ display: "flex", gap: 8, padding: "12px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, padding: "14px 24px", borderBottom: "1px solid rgba(255,255,255,0.08)", flexWrap: "wrap" }}>
           {styleCategories.map((category) => (
             <button
               key={category}
               type="button"
               onClick={() => setActiveCategory(category)}
               style={{
-                padding: "6px 16px",
-                borderRadius: 2,
+                padding: "8px 16px",
+                borderRadius: 999,
+                border: activeCategory === category ? "1px solid rgba(130,182,255,0.22)" : "1px solid transparent",
+                background: activeCategory === category ? "rgba(130,182,255,0.18)" : "rgba(255,255,255,0.05)",
+                color: activeCategory === category ? "white" : "rgba(255,255,255,0.64)",
                 fontSize: 13,
-                fontWeight: 500,
-                color: activeCategory === category ? "#fff" : "rgba(255,255,255,0.6)",
-                backgroundColor: activeCategory === category ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.05)",
-                border: activeCategory === category ? "1px solid rgba(255,255,255,0.2)" : "1px solid transparent",
-                transition: "all 0.2s",
+                fontWeight: 600,
               }}
             >
               {category}
@@ -606,11 +535,10 @@ function StyleGallery({ onClose, onSelect }: { onClose: () => void; onSelect: (n
                 type="button"
                 onClick={() => onSelect(styleItem.name)}
                 style={{
-                  borderRadius: 2,
+                  borderRadius: 22,
                   overflow: "hidden",
-                  border: "1px solid var(--border)",
-                  transition: "all 0.2s",
-                  backgroundColor: "rgba(255,255,255,0.02)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.03)",
                   textAlign: "left",
                 }}
               >
@@ -622,7 +550,7 @@ function StyleGallery({ onClose, onSelect }: { onClose: () => void; onSelect: (n
                     style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
                   />
                 </div>
-                <div style={{ padding: "10px 12px", fontSize: 13, color: "rgba(255,255,255,0.88)", textAlign: "center", fontWeight: 500 }}>
+                <div style={{ padding: "12px 12px 14px", fontSize: 13, color: "rgba(255,255,255,0.88)", textAlign: "center", fontWeight: 600 }}>
                   {styleItem.name}
                 </div>
               </button>
@@ -634,7 +562,7 @@ function StyleGallery({ onClose, onSelect }: { onClose: () => void; onSelect: (n
   );
 }
 
-function ToolPopup({ onClose, title, children }: { onClose: () => void; title: string; children: React.ReactNode }) {
+function PopupShell({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return (
     <div
       onClick={onClose}
@@ -643,7 +571,7 @@ function ToolPopup({ onClose, title, children }: { onClose: () => void; title: s
         inset: 0,
         zIndex: 1000,
         backgroundColor: "rgba(2,8,23,0.64)",
-        backdropFilter: "blur(8px)",
+        backdropFilter: "blur(18px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -652,27 +580,58 @@ function ToolPopup({ onClose, title, children }: { onClose: () => void; title: s
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "var(--bg-panel)",
-          border: "1px solid var(--border)",
-          borderRadius: 4,
           width: 480,
           maxWidth: "92vw",
           maxHeight: "80vh",
           overflow: "auto",
-          boxShadow: "none",
+          borderRadius: 28,
+          border: "1px solid rgba(255,255,255,0.1)",
+          background: "rgba(15,18,26,0.94)",
+          boxShadow: "0 30px 80px rgba(0,0,0,0.32)",
+          backdropFilter: "blur(24px) saturate(150%)",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-          <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)" }}>{title}</h3>
-          <button type="button" onClick={onClose} style={{ width: 28, height: 28, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.4)", fontSize: 16 }}>×</button>
-        </div>
-        <div style={{ padding: 16 }}>{children}</div>
+        <PopupHeader title={title} onClose={onClose} />
+        <div style={{ padding: 18 }}>{children}</div>
       </div>
     </div>
   );
 }
 
-function ToolBtn({ icon, label, onClick }: { icon?: React.ReactNode; label: string; onClick: () => void }) {
+function PopupHeader({ title, onClose }: { title: string; onClose: () => void }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 20px 14px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+      <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)" }}>{title}</h3>
+      <button
+        type="button"
+        onClick={onClose}
+        style={{
+          width: 34,
+          height: 34,
+          borderRadius: 999,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "rgba(255,255,255,0.72)",
+          backgroundColor: "rgba(255,255,255,0.05)",
+          border: "1px solid rgba(255,255,255,0.08)",
+        }}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+function PopupActions({ children }: { children: ReactNode }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+      {children}
+    </div>
+  );
+}
+
+function ToolButton({ icon, label, onClick }: { icon?: ReactNode; label: string; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -680,14 +639,14 @@ function ToolBtn({ icon, label, onClick }: { icon?: React.ReactNode; label: stri
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 6,
-        padding: "7px 14px",
-        borderRadius: 2,
-        fontSize: 14,
+        gap: 7,
+        padding: "10px 14px",
+        borderRadius: 999,
+        border: "1px solid rgba(255,255,255,0.08)",
+        backgroundColor: "rgba(255,255,255,0.05)",
         color: "var(--text-secondary)",
-        backgroundColor: "var(--bg-hover)",
-        transition: "all 0.2s",
-        border: "1px solid var(--border)",
+        fontSize: 14,
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
       }}
     >
       {icon}
@@ -696,19 +655,136 @@ function ToolBtn({ icon, label, onClick }: { icon?: React.ReactNode; label: stri
   );
 }
 
+function SegmentButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: "9px 15px",
+        borderRadius: 999,
+        background: active ? "rgba(130,182,255,0.18)" : "transparent",
+        color: active ? "var(--text-primary)" : "rgba(255,255,255,0.5)",
+        fontSize: 14,
+        fontWeight: 600,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function GhostButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: "10px 16px",
+        borderRadius: 999,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.05)",
+        color: "var(--text-secondary)",
+        fontSize: 13,
+        fontWeight: 600,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function PrimaryButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: "10px 16px",
+        borderRadius: 999,
+        border: "1px solid rgba(130,182,255,0.2)",
+        background: "linear-gradient(180deg, rgba(130,182,255,0.3), rgba(77,132,255,0.16))",
+        color: "white",
+        fontSize: 13,
+        fontWeight: 650,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function BaseIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {children}
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <BaseIcon>
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </BaseIcon>
+  );
+}
+
+function ArrowUpIcon() {
+  return (
+    <BaseIcon>
+      <path d="M12 19V5" />
+      <path d="m6 11 6-6 6 6" />
+    </BaseIcon>
+  );
+}
+
 function DocIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-    </svg>
+    <BaseIcon>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5" />
+    </BaseIcon>
+  );
+}
+
+function PaletteIcon() {
+  return (
+    <BaseIcon>
+      <path d="M12 4a8 8 0 0 0 0 16h1.2a1.8 1.8 0 0 0 1.3-3 1.8 1.8 0 0 1 1.4-3H17a3 3 0 0 0 0-6 5.7 5.7 0 0 0-5-4Z" />
+      <path d="M7.5 11h.01" />
+      <path d="M9.5 7.5h.01" />
+      <path d="M14.5 7.5h.01" />
+    </BaseIcon>
   );
 }
 
 function AssetIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-    </svg>
+    <BaseIcon>
+      <rect x="4" y="5" width="16" height="14" rx="3" />
+      <path d="M9 10h6" />
+      <path d="M10 14h4" />
+    </BaseIcon>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <BaseIcon>
+      <path d="M12 16V6" />
+      <path d="m7 10 5-5 5 5" />
+      <path d="M5 19h14" />
+    </BaseIcon>
   );
 }

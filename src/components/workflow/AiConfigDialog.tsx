@@ -46,7 +46,7 @@ export default function AiConfigDialog({ open, onClose }: AiConfigDialogProps) {
         aiImageModel: imageModel,
         oaiImageBase: oaiImageBase,
         oaiImageModel: oaiImageModel,
-        oaiImageKey: oaiImageKey,
+        ...(oaiImageKey.trim() ? { oaiImageKey } : {}),
       } as Record<string, string>);
       setMessage("配置已保存");
       setTimeout(onClose, 1000);

@@ -58,11 +58,12 @@ def _load_workflow_config():
 # ---------------------------------------------------------------------------
 
 HOST = "127.0.0.1"
-PORT = 8787
+PORT = int(os.environ.get("PORT", "8787"))
 UPSTREAM_BASE = "http://zlhub.xiaowaiyou.cn/zhonglian/api/v1/proxy/ark/contents/generations/tasks"
 AI_CHAT_BASE = "http://peiqian.icu/v1/chat/completions"
 AI_IMAGE_BASE = "http://zlhub.xiaowaiyou.cn/zhonglian/api/v1/proxy/chat/completions"
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+MINIMAX_IMAGE_BASE = "https://api.minimaxi.com"
 # 出站 HTTP 代理（zlhub 需要通过本地代理访问）
 OUTBOUND_PROXY = os.environ.get("OUTBOUND_PROXY", "http://127.0.0.1:7897")
 CORS_ORIGIN = os.environ.get("CORS_ORIGIN", "http://127.0.0.1:3001")
@@ -449,7 +450,7 @@ def load_local_config():
     if not LOCAL_CONFIG_FILE.exists():
         return {}
     try:
-        return json.loads(LOCAL_CONFIG_FILE.read_text(encoding="utf-8"))
+        return json.loads(LOCAL_CONFIG_FILE.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError:
         return {}
 
@@ -613,6 +614,8 @@ def _oai_generate_image(prompt: str, aspect_ratio: str = "1:1", reference_images
     oai_base = (STATE.get("oai_image_base") or "").rstrip("/")
     oai_model = STATE.get("oai_image_model") or ""
     oai_key = STATE.get("oai_image_key") or ""
+    if "minimax" in oai_base.lower() or "minimaxi" in oai_base.lower() or oai_model.lower().startswith("image-"):
+        return _minimax_generate_image(prompt, aspect_ratio, reference_images)
     if not oai_base or not oai_model or not oai_key:
         raise RuntimeError("OAI 图像中转未配置 (oai_image_base / oai_image_model / oai_image_key)")
 
@@ -638,7 +641,18 @@ def _oai_generate_image(prompt: str, aspect_ratio: str = "1:1", reference_images
     }
 
     # Route through Next.js API proxy (Node.js fetch bypasses Cloudflare bot detection)
-    proxy_url = "http://127.0.0.1:3001/api/oai-image-proxy"
+    proxy_origins = []
+    for candidate in (
+        os.environ.get("NEXT_PROXY_ORIGIN"),
+        os.environ.get("NEXT_PUBLIC_APP_ORIGIN"),
+        CORS_ORIGIN,
+        "http://127.0.0.1:3002",
+        "http://localhost:3002",
+        "http://127.0.0.1:3001",
+        "http://localhost:3001",
+    ):
+        if candidate and candidate not in proxy_origins:
+            proxy_origins.append(candidate)
     proxy_payload = {
         "oaiBase": oai_base,
         "oaiModel": oai_model,
@@ -647,12 +661,23 @@ def _oai_generate_image(prompt: str, aspect_ratio: str = "1:1", reference_images
         "referenceImages": reference_images or [],
     }
     body = json.dumps(proxy_payload, ensure_ascii=False).encode("utf-8")
-    req = request.Request(proxy_url, data=body, headers={
-        "Content-Type": "application/json",
-    })
     opener = request.build_opener(request.ProxyHandler({}))
-    with opener.open(req, timeout=300) as resp:
-        proxy_result = json.loads(resp.read().decode("utf-8"))
+    proxy_result = None
+    last_proxy_error = None
+    for proxy_origin in proxy_origins:
+        proxy_url = f"{proxy_origin.rstrip('/')}/api/oai-image-proxy"
+        req = request.Request(proxy_url, data=body, headers={
+            "Content-Type": "application/json",
+        })
+        try:
+            with opener.open(req, timeout=300) as resp:
+                proxy_result = json.loads(resp.read().decode("utf-8"))
+            break
+        except Exception as exc:
+            last_proxy_error = exc
+
+    if proxy_result is None:
+        raise RuntimeError(f"OAI 图片代理不可用: {last_proxy_error}")
 
     if "error" in proxy_result:
         raise RuntimeError(proxy_result["error"])
@@ -661,6 +686,73 @@ def _oai_generate_image(prompt: str, aspect_ratio: str = "1:1", reference_images
     if not images:
         raise RuntimeError("OAI 中转未返回图片")
     return images
+
+
+def _build_minimax_image_url(base: str) -> str:
+    base = (base or MINIMAX_IMAGE_BASE).rstrip("/")
+    if base.endswith("/image_generation"):
+        return base
+    if base.endswith("/v1"):
+        return f"{base}/image_generation"
+    return f"{base}/v1/image_generation"
+
+
+def _minimax_generate_image(prompt: str, aspect_ratio: str = "1:1", reference_images: list[dict] | None = None) -> list[dict]:
+    """Generate images via the official MiniMax image_generation API."""
+    minimax_base = (STATE.get("oai_image_base") or MINIMAX_IMAGE_BASE).strip()
+    minimax_model = (STATE.get("oai_image_model") or "image-01").strip()
+    minimax_key = (STATE.get("oai_image_key") or "").strip()
+    if not minimax_key:
+        raise RuntimeError("MiniMax 图像生成未配置 API Key")
+
+    payload: dict[str, object] = {
+        "model": minimax_model,
+        "prompt": prompt,
+        "aspect_ratio": aspect_ratio,
+        "response_format": "base64",
+    }
+
+    subject_reference = []
+    for ref in reference_images or []:
+        ref_data = ref.get("data")
+        if not ref_data:
+            continue
+        mime = ref.get("mimeType", "image/png")
+        # Inference from MiniMax docs: pass the reference image as a data URL image_file.
+        subject_reference.append({
+            "type": "character",
+            "image_file": f"data:{mime};base64,{ref_data}",
+        })
+
+    if subject_reference:
+        payload["subject_reference"] = subject_reference
+
+    url = _build_minimax_image_url(minimax_base)
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = request.Request(url, data=body, headers={
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {minimax_key}",
+    })
+    opener = request.build_opener(request.ProxyHandler({}))
+    try:
+        with opener.open(req, timeout=300) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"MiniMax 图像生成失败: HTTP {exc.code} {detail[:300]}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"MiniMax 图像生成请求失败: {exc}") from exc
+
+    data = result.get("data") or {}
+    image_list = data.get("image_base64") or []
+    if not isinstance(image_list, list) or not image_list:
+        raise RuntimeError("MiniMax 未返回图片数据")
+
+    return [
+        {"bytesBase64Encoded": image_b64, "mimeType": "image/jpeg"}
+        for image_b64 in image_list
+        if isinstance(image_b64, str) and image_b64
+    ]
 
 
 def _gemini_generate_image(prompt: str, aspect_ratio: str = "1:1", count: int = 1, reference_images: list[dict] | None = None) -> list[dict]:
@@ -3432,8 +3524,12 @@ class AppHandler(BaseHTTPRequestHandler):
 
         image_base = STATE.get("ai_image_base", "")
         image_model = STATE.get("ai_image_model", "")
-        if _is_gemini_mode() and ("generativelanguage.googleapis.com" in image_base or image_model.startswith("imagen") or image_model.startswith("nano-banana") or image_model.startswith("gemini-")):
-            # Gemini Imagen path (only when image base points to Gemini)
+        use_modern_image_pipeline = bool(STATE.get("oai_image_base")) or image_model.startswith("image-") or (
+            _is_gemini_mode()
+            and ("generativelanguage.googleapis.com" in image_base or image_model.startswith("imagen") or image_model.startswith("nano-banana") or image_model.startswith("gemini-"))
+        )
+        if use_modern_image_pipeline:
+            # Modern image path: MiniMax / OAI relay / Gemini image generation
             prompt = data.get("prompt", "")
             pixel_size = data.get("size", "1024x1536")
             ar_map = {"1024x1024": "1:1", "1024x1536": "3:4", "1536x1024": "4:3", "2k": "1:1", "3k": "1:1"}

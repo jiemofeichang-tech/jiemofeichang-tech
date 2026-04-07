@@ -124,6 +124,7 @@ export function saveToLibrary(taskId: string) {
 export function updateSessionConfig(config: {
   apiKey?: string; userId?: string; defaultModel?: string; autoSave?: boolean;
   aiChatBase?: string; aiImageBase?: string; aiChatModel?: string; aiImageModel?: string;
+  oaiImageBase?: string; oaiImageModel?: string; oaiImageKey?: string;
 }) {
   return api<{ hasApiKey: boolean; userId: string; defaultModel: string; autoSave: boolean; message: string }>("/api/session/key", {
     method: "POST",
@@ -632,7 +633,7 @@ export async function wfAiChatStream(
 ): Promise<string> {
   // Call Python backend directly to avoid Next.js dev proxy 30s timeout.
   // AI responses (especially long JSON) can take 60s+.
-  const backendBase = `http://127.0.0.1:8787`;
+  const backendBase = `http://127.0.0.1:8788`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 分钟超时
   let res: Response;
@@ -933,27 +934,12 @@ export interface Scene360JobStatus {
 export async function scene360Analyze(payload: {
   reference_image: string;
 }): Promise<Scene360Analysis> {
-  // Try direct OAI relay from browser first
-  try {
-    const keyRes = await api<{ oai_image_key: string }>("/api/grid/oai-key");
-    const config = await fetchConfig();
-    const ai = (config as unknown as Record<string, unknown>).aiConfig as Record<string, string> | undefined;
-    const oaiBase = ai?.oaiImageBase || "";
-    const key = keyRes.oai_image_key;
-
-    if (oaiBase && key) {
-      const content = await _oaiBrowserChat(oaiBase, key, "[官逆C]gemini-3-flash-preview", payload.reference_image, SCENE_360_ANALYSIS_PROMPT);
-      return _parseAiJson<Scene360Analysis>(content);
-    }
-  } catch (e) {
-    console.warn("[scene360] Browser OAI analysis failed, falling back:", e);
-  }
-
-  // Fallback: server-side
-  const startRes = await api<{ job_id: string }>("/api/grid/scene360/analyze", {
+  const preparedPayload = await _prepareAnalysisPayload(payload);
+  const startRes = await api<Scene360Analysis | { job_id: string }>("/api/grid/scene360/analyze", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(preparedPayload),
   });
+  if ("style_anchor" in startRes) return startRes;
   const maxWait = Date.now() + 120_000;
   while (Date.now() < maxWait) {
     await new Promise((r) => setTimeout(r, 2000));
@@ -976,11 +962,12 @@ export async function scene360Generate(payload: {
   view_count: 4 | 6 | 8;
   aspect_ratio: string;
 }): Promise<{ job_id: string; status: string }> {
-  const backendBase = "http://127.0.0.1:8787";
+  const preparedPayload = await _prepareGenerationPayload(payload);
+  const backendBase = "http://127.0.0.1:8788";
   const res = await fetch(`${backendBase}/api/grid/scene360/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(preparedPayload),
     credentials: "include",
   });
   const data = await res.json().catch(() => ({}));
@@ -1051,29 +1038,10 @@ export async function storyboardAnalyze(payload: {
   reference_image: string;
   grid_size: 9 | 25;
 }): Promise<StoryboardAnalysis> {
-  // Try direct OAI relay from browser first (bypasses proxy issues)
-  const config = await fetchConfig();
-  const ai = (config as unknown as Record<string, unknown>).aiConfig as Record<string, string> | undefined;
-  const oaiBase = ai?.oaiImageBase || "";
-  const oaiKey = (config as unknown as Record<string, Record<string, string>>).aiConfig?.oaiImageKey || "";
-
-  if (oaiBase) {
-    // Get the key from server config (stored in .local-secrets.json)
-    const keyRes = await api<{ oai_image_key: string }>("/api/grid/oai-key");
-    const key = keyRes.oai_image_key;
-    if (key) {
-      try {
-        return await _analyzeViaOai(payload, oaiBase, key);
-      } catch (e) {
-        console.warn("[storyboard] Browser OAI analysis failed, falling back to server:", e);
-      }
-    }
-  }
-
-  // Fallback: server-side analysis (async job)
+  const preparedPayload = await _prepareAnalysisPayload(payload);
   const startRes = await api<{ job_id: string; status: string }>("/api/grid/storyboard/analyze", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(preparedPayload),
   });
   const { job_id } = startRes;
 
@@ -1094,22 +1062,32 @@ export async function storyboardAnalyze(payload: {
   throw new Error("AI 分析超时");
 }
 
-/** Compress an image data URL to max 100x100 JPEG for analysis (reduces payload size) */
-async function _compressImageForAnalysis(dataUrl: string): Promise<string> {
+async function _prepareAnalysisPayload<T extends { reference_image: string }>(payload: T): Promise<T> {
+  const reference_image = await _compressImageForAnalysis(payload.reference_image, 768, 0.82);
+  return { ...payload, reference_image };
+}
+
+async function _prepareGenerationPayload<T extends { reference_image: string }>(payload: T): Promise<T> {
+  const reference_image = await _compressImageForAnalysis(payload.reference_image, 1024, 0.88);
+  return { ...payload, reference_image };
+}
+
+/** Compress an image data URL before analysis to keep payloads stable. */
+async function _compressImageForAnalysis(dataUrl: string, maxSize = 768, quality = 0.82): Promise<string> {
+  if (!dataUrl.startsWith("data:")) return dataUrl;
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const MAX = 100;
       let w = img.naturalWidth, h = img.naturalHeight;
-      if (w > MAX || h > MAX) {
-        const scale = MAX / Math.max(w, h);
+      if (w > maxSize || h > maxSize) {
+        const scale = maxSize / Math.max(w, h);
         w = Math.round(w * scale);
         h = Math.round(h * scale);
       }
       const cv = document.createElement("canvas");
       cv.width = w; cv.height = h;
       cv.getContext("2d")!.drawImage(img, 0, 0, w, h);
-      resolve(cv.toDataURL("image/jpeg", 0.7));
+      resolve(cv.toDataURL("image/jpeg", quality));
     };
     img.onerror = () => resolve(dataUrl); // fallback to original
     img.src = dataUrl;
@@ -1178,14 +1156,15 @@ export async function storyboardGenerate(payload: {
   grid_size: 9 | 25;
   aspect_ratio: string;
 }): Promise<{ job_id: string; status: string }> {
-  const urls = ["http://127.0.0.1:8787/api/grid/storyboard/generate", "/api/grid/storyboard/generate"];
+  const preparedPayload = await _prepareGenerationPayload(payload);
+  const urls = ["http://127.0.0.1:8788/api/grid/storyboard/generate", "/api/grid/storyboard/generate"];
   let lastError: Error | null = null;
   for (const url of urls) {
     try {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(preparedPayload),
         credentials: "include",
       });
       const data = await res.json().catch(() => ({}));

@@ -7,6 +7,7 @@ import AiConfigDialog from "@/components/workflow/AiConfigDialog";
 export default function ModelSwitcher() {
   const [imageModel, setImageModel] = useState("");
   const [imageBase, setImageBase] = useState("");
+  const [oaiEnabled, setOaiEnabled] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -15,8 +16,10 @@ export default function ModelSwitcher() {
     fetchConfig().then((cfg) => {
       const ai = ((cfg as unknown) as Record<string, unknown>).aiConfig as Record<string, string> | undefined;
       if (ai) {
-        setImageModel(ai.imageModel || "");
-        setImageBase(ai.imageBase || "");
+        const useOaiImage = Boolean(ai.oaiImageEnabled);
+        setOaiEnabled(useOaiImage);
+        setImageModel((useOaiImage ? ai.oaiImageModel : ai.imageModel) || ai.imageModel || ai.oaiImageModel || "");
+        setImageBase((useOaiImage ? ai.oaiImageBase : ai.imageBase) || ai.imageBase || ai.oaiImageBase || "");
       }
     }).catch(() => {});
   }, []);
@@ -26,12 +29,12 @@ export default function ModelSwitcher() {
   const handleQuickSwitch = useCallback(async (model: string) => {
     setSaving(true);
     try {
-      await updateSessionConfig({ aiImageModel: model } as Record<string, string>);
+      await updateSessionConfig(oaiEnabled ? { aiImageModel: model, oaiImageModel: model } : { aiImageModel: model });
       setImageModel(model);
     } catch { /* ignore */ }
     setSaving(false);
     setShowDropdown(false);
-  }, []);
+  }, [oaiEnabled]);
 
   const shortName = imageModel.length > 25 ? imageModel.slice(0, 22) + "..." : imageModel;
 
@@ -103,6 +106,7 @@ export default function ModelSwitcher() {
 }
 
 const QUICK_MODELS = [
+  { value: "image-01", label: "MiniMax image-01", desc: "MiniMax 官方图片生成" },
   { value: "gemini-3-pro-image-preview", label: "Gemini 3 Pro Image", desc: "多模态生成，支持参考图" },
   { value: "nano-banana-pro-preview", label: "Nano Banana Pro", desc: "快速生成，性价比高" },
   { value: "imagen-4.0-generate-001", label: "Imagen 4.0", desc: "Google 高质量图像生成" },

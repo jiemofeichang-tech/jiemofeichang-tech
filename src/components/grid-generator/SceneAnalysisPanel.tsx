@@ -171,7 +171,7 @@ export default function SceneAnalysisPanel({ refImage, onConfirm, onBack }: Scen
                 <div>
                   <span className="text-orange-400 text-[10px] font-medium">🎨 画面描述（用于生图，英文）</span>
                   <textarea
-                    value={(elem as Record<string, unknown>).image_prompt as string ?? ""}
+                    value={elem.image_prompt ?? ""}
                     onChange={(e) => updateSpatialElement(idx, "image_prompt", e.target.value)}
                     className="w-full mt-0.5 px-2 py-1.5 bg-orange-500/5 border border-orange-500/20 rounded text-white/90 text-xs resize-none focus:border-orange-500/50 focus:outline-none transition"
                     rows={3}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, type CSSProperties } from "react";
 import { authLogin, authRegister } from "@/lib/api";
 
 type Tab = "login" | "register";
@@ -14,11 +14,9 @@ export default function LoginPage() {
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
-  const [hoverButton, setHoverButton] = useState(false);
 
-  /* ── 切换 tab 时重置表单 ── */
-  const switchTab = useCallback((t: Tab) => {
-    setTab(t);
+  const switchTab = useCallback((nextTab: Tab) => {
+    setTab(nextTab);
     setUsername("");
     setPassword("");
     setConfirmPassword("");
@@ -26,7 +24,6 @@ export default function LoginPage() {
     setSuccess("");
   }, []);
 
-  /* ── 提交 ── */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -39,15 +36,15 @@ export default function LoginPage() {
 
     if (tab === "register") {
       if (username.trim().length < 2) {
-        setError("用户名至少 2 个字符");
+        setError("用户名至少需要 2 个字符");
         return;
       }
       if (password.length < 6) {
-        setError("密码至少 6 个字符");
+        setError("密码至少需要 6 个字符");
         return;
       }
       if (password !== confirmPassword) {
-        setError("两次密码输入不一致");
+        setError("两次输入的密码不一致");
         return;
       }
     }
@@ -59,7 +56,6 @@ export default function LoginPage() {
         window.location.href = "/";
       } else {
         await authRegister(username.trim(), password);
-        // 注册成功 → 自动切换到登录 tab，让用户登录
         setSuccess("注册成功，请登录");
         setTab("login");
         setPassword("");
@@ -72,277 +68,333 @@ export default function LoginPage() {
     }
   };
 
-  /* ── 输入框样式（带 focus 支持） ── */
-  const getInputStyle = (field: string): React.CSSProperties => ({
+  const inputStyle = (field: string): CSSProperties => ({
     width: "100%",
-    padding: "10px 14px",
-    backgroundColor: "var(--bg-input)",
-    border: focusedField === field
-      ? "1px solid var(--accent-pink)"
-      : "1px solid var(--border)",
-    borderRadius: 8,
+    padding: "14px 16px",
+    borderRadius: 18,
+    border: focusedField === field ? "1px solid rgba(130,182,255,0.32)" : "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.05)",
     color: "var(--text-primary)",
     fontSize: 14,
     outline: "none",
-    boxSizing: "border-box",
-    transition: "border-color 0.2s, box-shadow 0.2s",
-    boxShadow: focusedField === field
-      ? "0 0 0 3px rgba(255, 140, 0, 0.15)"
-      : "none",
+    boxShadow: focusedField === field ? "0 0 0 4px rgba(130,182,255,0.12)" : "none",
+    transition: "border-color 0.2s ease, box-shadow 0.2s ease",
   });
-
-  /* ── 按钮样式（带 hover 支持） ── */
-  const buttonStyle: React.CSSProperties = {
-    width: "100%",
-    padding: "12px 0",
-    backgroundColor: loading
-      ? "rgba(255, 140, 0, 0.5)"
-      : hoverButton
-        ? "var(--accent-hot-pink)"
-        : "var(--accent-pink)",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    fontSize: 15,
-    fontWeight: 600,
-    cursor: loading ? "not-allowed" : "pointer",
-    transition: "background-color 0.2s, transform 0.1s",
-    marginTop: 4,
-    transform: hoverButton && !loading ? "translateY(-1px)" : "none",
-  };
 
   return (
     <div
       style={{
         minHeight: "100vh",
-        background:
-          "radial-gradient(circle at 12% 0%, rgba(105, 147, 255, 0.16), transparent 28%),"
-          + "radial-gradient(circle at 82% 16%, rgba(255, 192, 93, 0.16), transparent 24%),"
-          + "linear-gradient(180deg, #07111f 0%, #081523 38%, #0c1b2d 100%)",
+        padding: 20,
         display: "flex",
-        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        padding: 20,
       }}
     >
       <div
         style={{
-          width: 400,
-          backgroundColor: "rgba(33, 28, 23, 0.7)",
-          backdropFilter: "blur(20px)",
-          border: "1px solid rgba(255, 255, 255, 0.08)",
-          borderRadius: 20,
-          padding: "40px 32px",
-          boxShadow: "0 24px 48px rgba(0, 0, 0, 0.3)",
-          animation: "fadeInUp 0.5s ease-out",
+          width: "min(1040px, 100%)",
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1.1fr) minmax(360px, 420px)",
+          gap: 22,
+          alignItems: "stretch",
         }}
       >
-        {/* ── Logo ── */}
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <img src="/assets/logo.png" alt="聚给力" style={{ width: 40, height: 40, objectFit: "contain" }} />
-            <span
-              style={{
-                fontSize: 24,
-                fontWeight: 800,
-                color: "#fff",
-                letterSpacing: "0.5px",
-                fontFamily: "'Noto Sans SC', sans-serif",
-              }}
-            >
-              聚给力
-            </span>
-          </div>
-          <div style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 8 }}>
-            AI 动画智能创作平台
-          </div>
-        </div>
-
-        {/* ── Tabs ── */}
-        <div
+        <section
           style={{
-            display: "flex",
-            gap: 0,
-            marginBottom: 28,
-            borderBottom: "1px solid var(--border)",
+            position: "relative",
+            overflow: "hidden",
+            borderRadius: 34,
+            border: "1px solid rgba(255,255,255,0.08)",
+            background:
+              "radial-gradient(circle at top left, rgba(130,182,255,0.18), transparent 24%), linear-gradient(180deg, rgba(14,18,28,0.9), rgba(11,14,21,0.82))",
+            boxShadow: "0 32px 90px rgba(0,0,0,0.28)",
+            padding: "42px 38px",
           }}
         >
-          {(["login", "register"] as Tab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => switchTab(t)}
-              style={{
-                flex: 1,
-                padding: "10px 0",
-                background: "none",
-                border: "none",
-                borderBottom:
-                  tab === t
-                    ? "2px solid var(--accent-pink)"
-                    : "2px solid transparent",
-                color: tab === t ? "var(--text-primary)" : "var(--text-muted)",
-                fontSize: 15,
-                fontWeight: 600,
-                cursor: "pointer",
-                transition: "all 0.2s",
-              }}
-            >
-              {t === "login" ? "登录" : "注册"}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Form ── */}
-        <form
-          onSubmit={handleSubmit}
-          style={{ display: "flex", flexDirection: "column", gap: 16 }}
-        >
-          {/* 用户名 */}
-          <div>
-            <label
-              style={{
-                display: "block",
-                color: "var(--text-secondary)",
-                fontSize: 13,
-                marginBottom: 6,
-              }}
-            >
-              用户名
-            </label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              onFocus={() => setFocusedField("username")}
-              onBlur={() => setFocusedField(null)}
-              placeholder="请输入用户名"
-              style={getInputStyle("username")}
-              autoComplete="username"
-              autoFocus
-            />
-          </div>
-
-          {/* 密码 */}
-          <div>
-            <label
-              style={{
-                display: "block",
-                color: "var(--text-secondary)",
-                fontSize: 13,
-                marginBottom: 6,
-              }}
-            >
-              密码
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onFocus={() => setFocusedField("password")}
-              onBlur={() => setFocusedField(null)}
-              placeholder="请输入密码"
-              style={getInputStyle("password")}
-              autoComplete={tab === "login" ? "current-password" : "new-password"}
-            />
-          </div>
-
-          {/* 确认密码（注册时显示，带过渡动画） */}
           <div
             style={{
-              maxHeight: tab === "register" ? 80 : 0,
-              opacity: tab === "register" ? 1 : 0,
-              overflow: "hidden",
-              transition: "max-height 0.3s ease, opacity 0.25s ease",
+              position: "absolute",
+              inset: 0,
+              background:
+                "radial-gradient(circle at 18% 20%, rgba(130,182,255,0.22), transparent 22%), radial-gradient(circle at 78% 76%, rgba(138,230,195,0.14), transparent 18%), linear-gradient(180deg, rgba(255,255,255,0.03), transparent 40%)",
+              pointerEvents: "none",
+            }}
+          />
+
+          <div
+            style={{
+              position: "relative",
+              height: "100%",
+              alignItems: "center",
+              justifyContent: "center",
+              display: "flex",
             }}
           >
-            <label
+            <div
               style={{
-                display: "block",
-                color: "var(--text-secondary)",
-                fontSize: 13,
-                marginBottom: 6,
+                position: "relative",
+                width: "min(460px, 100%)",
+                aspectRatio: "1 / 1",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              确认密码
-            </label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              onFocus={() => setFocusedField("confirm")}
-              onBlur={() => setFocusedField(null)}
-              placeholder="请再次输入密码"
-              style={getInputStyle("confirm")}
-              autoComplete="new-password"
-              tabIndex={tab === "register" ? 0 : -1}
-            />
+              <div
+                style={{
+                  position: "absolute",
+                  inset: "6%",
+                  borderRadius: 40,
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  background: "rgba(255,255,255,0.02)",
+                  backdropFilter: "blur(12px)",
+                }}
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  width: "72%",
+                  aspectRatio: "1 / 1",
+                  borderRadius: "50%",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
+                }}
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  width: "52%",
+                  aspectRatio: "1 / 1",
+                  borderRadius: "50%",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  boxShadow: "0 0 80px rgba(130,182,255,0.12)",
+                }}
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  width: 124,
+                  height: 124,
+                  borderRadius: 36,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05))",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxShadow: "0 28px 60px rgba(0,0,0,0.2)",
+                  backdropFilter: "blur(18px)",
+                }}
+              >
+                <img src="/assets/logo.png" alt="聚给力" style={{ width: 62, height: 62, objectFit: "contain" }} />
+              </div>
+              <div
+                style={{
+                  position: "absolute",
+                  top: "14%",
+                  right: "12%",
+                  width: 72,
+                  height: 72,
+                  borderRadius: 24,
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.04)",
+                  backdropFilter: "blur(12px)",
+                }}
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  left: "10%",
+                  bottom: "16%",
+                  width: 92,
+                  height: 92,
+                  borderRadius: 28,
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.03)",
+                  backdropFilter: "blur(12px)",
+                }}
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  right: "18%",
+                  bottom: "12%",
+                  width: 120,
+                  height: 56,
+                  borderRadius: 999,
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.04)",
+                  backdropFilter: "blur(12px)",
+                }}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section
+          style={{
+            borderRadius: 34,
+            border: "1px solid rgba(255,255,255,0.1)",
+            background: "rgba(15,18,26,0.9)",
+            backdropFilter: "blur(30px) saturate(150%)",
+            boxShadow: "0 34px 100px rgba(0,0,0,0.32)",
+            padding: "34px 30px",
+          }}
+        >
+          <div style={{ textAlign: "center", marginBottom: 28 }}>
+            <div
+              style={{
+                width: 58,
+                height: 58,
+                margin: "0 auto 12px",
+                borderRadius: 20,
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05))",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <img src="/assets/logo.png" alt="聚给力" style={{ width: 30, height: 30, objectFit: "contain" }} />
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.03em", color: "var(--text-primary)" }}>聚给力</div>
+            <div style={{ marginTop: 6, fontSize: 13, color: "var(--text-muted)" }}>登录你的创作工作台</div>
           </div>
 
-          {/* 成功提示 */}
-          {success && (
-            <div
-              style={{
-                color: "var(--accent-green)",
-                fontSize: 13,
-                padding: "8px 12px",
-                backgroundColor: "rgba(0, 204, 153, 0.1)",
-                borderRadius: 6,
-              }}
-            >
-              {success}
-            </div>
-          )}
-
-          {/* 错误提示 */}
-          {error && (
-            <div
-              style={{
-                color: "#ef4444",
-                fontSize: 13,
-                padding: "8px 12px",
-                backgroundColor: "rgba(239, 68, 68, 0.1)",
-                borderRadius: 6,
-              }}
-            >
-              {error}
-            </div>
-          )}
-
-          {/* 提交按钮 */}
-          <button
-            type="submit"
-            disabled={loading}
-            onMouseEnter={() => setHoverButton(true)}
-            onMouseLeave={() => setHoverButton(false)}
-            style={buttonStyle}
+          <div
+            style={{
+              display: "flex",
+              gap: 6,
+              marginBottom: 22,
+              padding: 4,
+              borderRadius: 999,
+              border: "1px solid rgba(255,255,255,0.08)",
+              background: "rgba(255,255,255,0.04)",
+            }}
           >
-            {loading ? "处理中..." : tab === "login" ? "登录" : "注册"}
-          </button>
-        </form>
-      </div>
+            {(["login", "register"] as Tab[]).map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => switchTab(item)}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 999,
+                  color: tab === item ? "var(--text-primary)" : "var(--text-muted)",
+                  background: tab === item ? "rgba(130,182,255,0.18)" : "transparent",
+                  fontSize: 14,
+                  fontWeight: 600,
+                }}
+              >
+                {item === "login" ? "登录" : "注册"}
+              </button>
+            ))}
+          </div>
 
-      <a
-        href="/"
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          marginTop: 24,
-          fontSize: 13,
-          color: "var(--text-muted)",
-          textDecoration: "none",
-          transition: "color 0.2s",
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-secondary)"; }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M19 12H5" />
-          <path d="M12 19l-7-7 7-7" />
-        </svg>
-        返回首页
-      </a>
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <Field label="用户名">
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                onFocus={() => setFocusedField("username")}
+                onBlur={() => setFocusedField(null)}
+                placeholder="请输入用户名"
+                style={inputStyle("username")}
+                autoComplete="username"
+                autoFocus
+              />
+            </Field>
+
+            <Field label="密码">
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onFocus={() => setFocusedField("password")}
+                onBlur={() => setFocusedField(null)}
+                placeholder="请输入密码"
+                style={inputStyle("password")}
+                autoComplete={tab === "login" ? "current-password" : "new-password"}
+              />
+            </Field>
+
+            {tab === "register" && (
+              <Field label="确认密码">
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  onFocus={() => setFocusedField("confirmPassword")}
+                  onBlur={() => setFocusedField(null)}
+                  placeholder="请再次输入密码"
+                  style={inputStyle("confirmPassword")}
+                  autoComplete="new-password"
+                />
+              </Field>
+            )}
+
+            {error && (
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderRadius: 18,
+                  border: "1px solid rgba(255,138,128,0.18)",
+                  background: "rgba(255,138,128,0.08)",
+                  color: "#ff9f97",
+                  fontSize: 13,
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            {success && (
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderRadius: 18,
+                  border: "1px solid rgba(138,230,195,0.18)",
+                  background: "rgba(138,230,195,0.08)",
+                  color: "var(--accent-green)",
+                  fontSize: 13,
+                }}
+              >
+                {success}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                marginTop: 4,
+                padding: "14px 18px",
+                borderRadius: 18,
+                border: "1px solid rgba(130,182,255,0.2)",
+                background: "linear-gradient(180deg, rgba(130,182,255,0.3), rgba(77,132,255,0.16))",
+                color: "white",
+                fontSize: 14,
+                fontWeight: 650,
+                boxShadow: "0 18px 36px rgba(77,132,255,0.18)",
+                opacity: loading ? 0.65 : 1,
+              }}
+            >
+              {loading ? "处理中..." : tab === "login" ? "进入工作台" : "创建账号"}
+            </button>
+          </form>
+        </section>
+      </div>
     </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)" }}>{label}</span>
+      {children}
+    </label>
   );
 }

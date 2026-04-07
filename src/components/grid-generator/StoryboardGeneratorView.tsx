@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import GridUploader from "./GridUploader";
 import StoryboardAnalysisPanel from "./StoryboardAnalysisPanel";
 import StoryboardDisplay from "./StoryboardDisplay";
 import ModelSwitcher from "./ModelSwitcher";
+import { readJsonStorage, removeStorage, writeJsonStorage } from "@/lib/storage";
 
 interface RefImage {
   base64: string;
@@ -15,16 +16,31 @@ interface RefImage {
 
 type Step = "upload" | "config" | "analyze" | "generate";
 
+interface PersistedStoryboardState {
+  step: Step;
+  refImage: RefImage | null;
+  gridSize: 9 | 25;
+  jobId: string | null;
+}
+
+const STORAGE_KEY = "jg:storyboard-generator";
+
 const GRID_OPTIONS = [
   { size: 9 as const, label: "3 x 3", desc: "9 帧三段式" },
   { size: 25 as const, label: "5 x 5", desc: "25 帧五段式" },
 ];
 
 export default function StoryboardGeneratorView() {
-  const [step, setStep] = useState<Step>("upload");
-  const [refImage, setRefImage] = useState<RefImage | null>(null);
-  const [gridSize, setGridSize] = useState<9 | 25>(9);
-  const [jobId, setJobId] = useState<string | null>(null);
+  const persisted = readJsonStorage<PersistedStoryboardState>(STORAGE_KEY, {
+    step: "upload",
+    refImage: null,
+    gridSize: 9,
+    jobId: null,
+  });
+  const [step, setStep] = useState<Step>(persisted.step);
+  const [refImage, setRefImage] = useState<RefImage | null>(persisted.refImage);
+  const [gridSize, setGridSize] = useState<9 | 25>(persisted.gridSize);
+  const [jobId, setJobId] = useState<string | null>(persisted.jobId);
 
   const handleUpload = useCallback((image: RefImage) => {
     setRefImage(image);
@@ -44,7 +60,21 @@ export default function StoryboardGeneratorView() {
     setStep("upload");
     setRefImage(null);
     setJobId(null);
+    removeStorage(STORAGE_KEY);
   }, []);
+
+  useEffect(() => {
+    if (step === "upload" && !refImage && !jobId) {
+      removeStorage(STORAGE_KEY);
+      return;
+    }
+    writeJsonStorage<PersistedStoryboardState>(STORAGE_KEY, {
+      step,
+      refImage,
+      gridSize,
+      jobId,
+    });
+  }, [step, refImage, gridSize, jobId]);
 
   return (
     <div className="h-full overflow-auto bg-[#0a0f1a] text-white flex flex-col">

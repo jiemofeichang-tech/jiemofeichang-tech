@@ -69,9 +69,9 @@ export default function Footer() {
         >
           <div style={{ minWidth: 240, flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-              <img src="/assets/logo.png" alt="绘力聚合" style={{ width: 30, height: 30, objectFit: "contain" }} />
+              <img src="/assets/logo.png" alt="聚给力" style={{ width: 30, height: 30, objectFit: "contain" }} />
               <span style={{ fontSize: 18, fontWeight: 700, color: "var(--text-primary)", fontFamily: "'Noto Serif SC', 'Noto Sans SC', serif" }}>
-                绘力聚合
+                聚给力
               </span>
             </div>
             <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.9, maxWidth: 360 }}>
@@ -79,7 +79,7 @@ export default function Footer() {
               首页既承担创作入口，也承担作品展示，让灵感和生产流程停留在同一个页面里。
             </p>
             <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 14, opacity: 0.8, fontFamily: "'JetBrains Mono', monospace" }}>
-              &copy; 2026 绘力聚合
+              &copy; 2026 聚给力
             </p>
           </div>
 

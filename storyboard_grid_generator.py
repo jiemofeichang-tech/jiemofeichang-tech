@@ -6,6 +6,7 @@ AI-driven cinematic storyboard analysis + sequential frame generation.
 
 import base64
 import json
+import os
 import re
 import threading
 import time
@@ -206,8 +207,8 @@ def _analyze_via_oai_chat(ref_b64: str, mime_type: str, system_prompt: str, chat
     data_uri = f"data:{mime_type};base64,{ref_b64}"
     messages = [
         {"role": "user", "content": [
-            {"type": "image_url", "image_url": {"url": data_uri}},
             {"type": "text", "text": system_prompt},
+            {"type": "image_url", "image_url": {"url": data_uri}},
         ]},
     ]
 
@@ -220,12 +221,32 @@ def _analyze_via_oai_chat(ref_b64: str, mime_type: str, system_prompt: str, chat
     }
 
     body = json.dumps(proxy_payload, ensure_ascii=False).encode("utf-8")
-    req = _ureq.Request("http://127.0.0.1:3001/api/oai-chat-proxy", data=body, headers={
-        "Content-Type": "application/json",
-    })
     opener = _ureq.build_opener(_ureq.ProxyHandler({}))
-    with opener.open(req, timeout=280) as resp:
-        result = json.loads(resp.read().decode("utf-8"))
+    proxy_origins: list[str] = []
+    for candidate in (
+        os.environ.get("NEXT_PROXY_ORIGIN"),
+        os.environ.get("NEXT_PUBLIC_APP_ORIGIN"),
+        "http://127.0.0.1:3002",
+        "http://localhost:3002",
+        "http://127.0.0.1:3001",
+        "http://localhost:3001",
+    ):
+        if candidate and candidate not in proxy_origins:
+            proxy_origins.append(candidate)
+
+    last_error = None
+    for origin in proxy_origins:
+        req = _ureq.Request(f"{origin}/api/oai-chat-proxy", data=body, headers={
+            "Content-Type": "application/json",
+        })
+        try:
+            with opener.open(req, timeout=280) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+                break
+        except Exception as exc:
+            last_error = exc
+    else:
+        raise RuntimeError(f"OAI chat proxy unavailable: {last_error}")
 
     if "error" in result:
         raise RuntimeError(result["error"])
@@ -236,21 +257,120 @@ def _analyze_via_oai_chat(ref_b64: str, mime_type: str, system_prompt: str, chat
     return _parse_ai_json(text)
 
 
+def _extract_oai_text_direct(result: dict) -> str:
+    """Extract text from common OpenAI-compatible response shapes."""
+    choices = result.get("choices")
+    if isinstance(choices, list) and choices:
+        message = choices[0].get("message", {})
+        content = message.get("content", "")
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "text" and isinstance(item.get("text"), str):
+                    parts.append(item["text"])
+                elif isinstance(item.get("text"), str):
+                    parts.append(item["text"])
+            if parts:
+                return "\n".join(parts).strip()
+
+    output_text = result.get("output_text")
+    if isinstance(output_text, str):
+        return output_text.strip()
+
+    content = result.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                parts.append(item["text"])
+        if parts:
+            return "\n".join(parts).strip()
+
+    return ""
+
+
+def _looks_like_missing_image_reply(text: str) -> bool:
+    normalized = (text or "").lower()
+    return any(
+        phrase in normalized
+        for phrase in (
+            '"saw_image": false',
+            '"saw_image":false',
+            "no image",
+            "no image attached",
+            "haven't actually uploaded any image",
+            "you haven't actually uploaded",
+            "don't see any image",
+            "please upload",
+            "没有看到任何图片",
+            "没有接收到图片",
+            "请上传",
+        )
+    )
+
+
+def _analyze_via_oai_chat_direct(ref_b64: str, mime_type: str, system_prompt: str, chat_base: str, chat_model: str, chat_key: str) -> dict:
+    """Analyze image via an OpenAI-compatible chat endpoint directly from Python."""
+    import urllib.request as _ureq
+
+    data_uri = f"data:{mime_type};base64,{ref_b64}"
+    messages = [
+        {"role": "user", "content": [
+            {"type": "text", "text": system_prompt},
+            {"type": "image_url", "image_url": {"url": data_uri}},
+        ]},
+    ]
+    payload = {
+        "model": chat_model,
+        "messages": messages,
+        "max_tokens": 8000,
+    }
+
+    url = chat_base if "/chat/completions" in chat_base else f"{chat_base.rstrip('/')}/v1/chat/completions"
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    opener = _ureq.build_opener(_ureq.ProxyHandler({}))
+    req = _ureq.Request(
+        url,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {chat_key}",
+        },
+    )
+    with opener.open(req, timeout=280) as resp:
+        result = json.loads(resp.read().decode("utf-8"))
+
+    text = _extract_oai_text_direct(result)
+    if not text:
+        raise RuntimeError("AI did not return analysis content")
+    if _looks_like_missing_image_reply(text):
+        raise RuntimeError("当前文本模型未真正接收到图片，暂不支持图片分析。请换成支持视觉输入的模型。")
+    return _parse_ai_json(text)
+
+
 def analyze_storyboard(ref_b64: str, mime_type: str, grid_size: int, gemini_request_fn: Any) -> dict:
     """Analyze reference image and generate storyboard plan."""
-    from server import STATE, GEMINI_BASE, get_api_key
+    from server import STATE, GEMINI_BASE, get_ai_chat_key
 
     prompt = ANALYSIS_PROMPTS.get(grid_size, STORYBOARD_ANALYSIS_PROMPT_9)
 
-    # Use ycapis (ai_chat_base + ai_chat_model + api_key) for analysis via Next.js proxy
+    # Use configured chat model for analysis via Next.js proxy.
     chat_base = (STATE.get("ai_chat_base") or "").strip()
     chat_model = (STATE.get("ai_chat_model") or "").strip()
-    api_key = get_api_key()
+    api_key = get_ai_chat_key()
 
     if chat_base and chat_model and api_key:
         try:
-            return _analyze_via_oai_chat(ref_b64, mime_type, prompt, chat_base, chat_model, api_key)
+            return _analyze_via_oai_chat_direct(ref_b64, mime_type, prompt, chat_base, chat_model, api_key)
         except Exception as e:
+            if "支持视觉输入" in str(e) or "未真正接收到图片" in str(e):
+                raise
             print(f"[storyboard] OAI chat analysis failed: {e}, falling back to Gemini", flush=True)
 
     # Fallback: Gemini native

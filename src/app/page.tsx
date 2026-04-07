@@ -8,8 +8,6 @@ import TaskProgress from "@/components/TaskProgress";
 import QuickTags from "@/components/QuickTags";
 import ProjectsRow from "@/components/ProjectsRow";
 import WorkflowProjects from "@/components/workflow/WorkflowProjects";
-import HighlightsSection from "@/components/HighlightsSection";
-import DiscoverSection from "@/components/DiscoverSection";
 import Footer from "@/components/Footer";
 import ProjectsPage from "@/components/ProjectsPage";
 import TrashPage from "@/components/TrashPage";
@@ -29,9 +27,13 @@ import {
   type ServerConfig,
   type TaskRecord,
 } from "@/lib/api";
+import { readJsonStorage, writeJsonStorage } from "@/lib/storage";
+
+const ACTIVE_TAB_STORAGE_KEY = "jg:home:active-tab";
 
 
 export default function Home() {
+  const fullscreenPanelLeft = 118;
   const [activeTab, setActiveTab] = useState("home");
   const [prompt, setPrompt] = useState("");
   const [activeStoryType, setActiveStoryType] = useState<string | undefined>();
@@ -78,6 +80,14 @@ export default function Home() {
     await authLogout();
     window.location.href = "/login";
   }, []);
+
+  useEffect(() => {
+    setActiveTab(readJsonStorage<string>(ACTIVE_TAB_STORAGE_KEY, "home"));
+  }, []);
+
+  useEffect(() => {
+    writeJsonStorage(ACTIVE_TAB_STORAGE_KEY, activeTab);
+  }, [activeTab]);
 
   return (
     <AuthGuard>
@@ -134,8 +144,6 @@ export default function Home() {
 
                 <WorkflowProjects />
                 <ProjectsRow history={history} onOpenProjects={() => setActiveTab("projects")} />
-                <HighlightsSection />
-                <DiscoverSection />
                 <Footer />
               </div>
             )}
@@ -148,22 +156,22 @@ export default function Home() {
             {activeTab === "community" && <div key="community" className="tab-enter"><AssetPage /></div>}
             {activeTab === "trash" && <div key="trash" className="tab-enter"><TrashPage /></div>}
             {activeTab === "canvas" && (
-              <div key="canvas-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 50 }}>
+              <div key="canvas-page" style={{ position: "fixed", top: 0, left: fullscreenPanelLeft, right: 0, bottom: 0, zIndex: 50 }}>
                 <CanvasPage />
               </div>
             )}
             {activeTab === "grid" && (
-              <div key="grid-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 100 }}>
+              <div key="grid-page" style={{ position: "fixed", top: 0, left: fullscreenPanelLeft, right: 0, bottom: 0, zIndex: 100 }}>
                 <GridGeneratorView />
               </div>
             )}
             {activeTab === "scene-grid" && (
-              <div key="scene-grid-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 100 }}>
+              <div key="scene-grid-page" style={{ position: "fixed", top: 0, left: fullscreenPanelLeft, right: 0, bottom: 0, zIndex: 100 }}>
                 <SceneGeneratorView />
               </div>
             )}
             {activeTab === "storyboard" && (
-              <div key="storyboard-page" style={{ position: "fixed", top: 0, left: 70, right: 0, bottom: 0, zIndex: 100 }}>
+              <div key="storyboard-page" style={{ position: "fixed", top: 0, left: fullscreenPanelLeft, right: 0, bottom: 0, zIndex: 100 }}>
                 <StoryboardGeneratorView />
               </div>
             )}

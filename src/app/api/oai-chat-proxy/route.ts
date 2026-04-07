@@ -2,11 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 300;
 
-// Allow large request bodies (base64 images can be several MB)
-export const config = {
-  api: { bodyParser: { sizeLimit: "20mb" } },
-};
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -43,7 +38,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const data = await res.json();
+    const data = await res.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
     const content = data.choices?.[0]?.message?.content || "";
     return NextResponse.json({ content });
   } catch (err) {

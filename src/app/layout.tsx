@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "绘力聚合 · AI 漫剧创作平台",
-  description: "一句灵感到角色、分镜与成片，面向 AI 漫剧创作的工作台。",
+  title: "聚给力 · AI 漫剧创作平台",
+  description: "从一句灵感到角色、分镜与成片，面向 AI 漫剧创作的工作台。",
   icons: {
     icon: "/favicon.ico",
     shortcut: "/favicon.ico",

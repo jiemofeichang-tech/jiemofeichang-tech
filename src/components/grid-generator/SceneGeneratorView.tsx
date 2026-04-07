@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import GridUploader from "./GridUploader";
 import SceneAnalysisPanel from "./SceneAnalysisPanel";
 import Scene360Display from "./Scene360Display";
 import ModelSwitcher from "./ModelSwitcher";
+import { readJsonStorage, removeStorage, writeJsonStorage } from "@/lib/storage";
 
 interface RefImage {
   base64: string;
@@ -15,11 +16,26 @@ interface RefImage {
 
 type Step = "upload" | "analyze" | "generate";
 
+interface PersistedSceneState {
+  step: Step;
+  refImage: RefImage | null;
+  viewCount: 4 | 6 | 8;
+  jobId: string | null;
+}
+
+const STORAGE_KEY = "jg:scene-generator";
+
 export default function SceneGeneratorView() {
-  const [step, setStep] = useState<Step>("upload");
-  const [refImage, setRefImage] = useState<RefImage | null>(null);
-  const [viewCount, setViewCount] = useState<4 | 6 | 8>(6);
-  const [jobId, setJobId] = useState<string | null>(null);
+  const persisted = readJsonStorage<PersistedSceneState>(STORAGE_KEY, {
+    step: "upload",
+    refImage: null,
+    viewCount: 6,
+    jobId: null,
+  });
+  const [step, setStep] = useState<Step>(persisted.step);
+  const [refImage, setRefImage] = useState<RefImage | null>(persisted.refImage);
+  const [viewCount, setViewCount] = useState<4 | 6 | 8>(persisted.viewCount);
+  const [jobId, setJobId] = useState<string | null>(persisted.jobId);
 
   const handleUpload = useCallback((image: RefImage) => {
     setRefImage(image);
@@ -36,7 +52,21 @@ export default function SceneGeneratorView() {
     setStep("upload");
     setRefImage(null);
     setJobId(null);
+    removeStorage(STORAGE_KEY);
   }, []);
+
+  useEffect(() => {
+    if (step === "upload" && !refImage && !jobId) {
+      removeStorage(STORAGE_KEY);
+      return;
+    }
+    writeJsonStorage<PersistedSceneState>(STORAGE_KEY, {
+      step,
+      refImage,
+      viewCount,
+      jobId,
+    });
+  }, [step, refImage, viewCount, jobId]);
 
   return (
     <div className="h-full overflow-auto bg-[#0a0f1a] text-white flex flex-col">
