@@ -414,8 +414,8 @@ def analyze_scene(ref_b64: str, mime_type: str, gemini_request_fn: Any) -> dict:
         except Exception as e:
             print(f"[scene360] OAI chat analysis failed: {e}, falling back to Gemini", flush=True)
 
-    # Fallback: Gemini native (always use GEMINI_BASE for Gemini API)
-    model = STATE.get("ai_image_model") or "gemini-2.5-pro"
+    # Fallback: Gemini native (analysis always uses gemini-2.5-pro on official API)
+    model = "gemini-2.5-pro"
     base = GEMINI_BASE
 
     # Compress image for Gemini too (avoid oversized payloads)

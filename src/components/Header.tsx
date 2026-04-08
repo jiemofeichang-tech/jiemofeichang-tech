@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { updateSessionConfig, type ServerConfig, type AuthUser } from "@/lib/api";
+import AiConfigDialog from "@/components/workflow/AiConfigDialog";
 
 interface HeaderProps {
   config?: ServerConfig | null;
@@ -669,6 +670,7 @@ function SettingsFormContent({ config, onSaved }: { config?: ServerConfig | null
   const [autoSave, setAutoSave] = useState(config?.autoSave ?? true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [aiConfigOpen, setAiConfigOpen] = useState(false);
 
   const inputStyle: CSSProperties = {
     width: "100%",
@@ -792,6 +794,25 @@ function SettingsFormContent({ config, onSaved }: { config?: ServerConfig | null
       >
         {saving ? "保存中..." : "保存设置"}
       </button>
+
+      <button
+        type="button"
+        onClick={() => setAiConfigOpen(true)}
+        style={{
+          padding: "14px 18px",
+          borderRadius: 18,
+          border: "1px solid rgba(192,132,252,0.22)",
+          background: "linear-gradient(180deg, rgba(192,132,252,0.2), rgba(124,58,237,0.12))",
+          color: "rgba(192,132,252,0.9)",
+          fontSize: 14,
+          fontWeight: 650,
+          boxShadow: "0 18px 36px rgba(124,58,237,0.12)",
+        }}
+      >
+        AI 模型配置
+      </button>
+
+      <AiConfigDialog open={aiConfigOpen} onClose={() => { setAiConfigOpen(false); onSaved(); }} />
     </form>
   );
 }

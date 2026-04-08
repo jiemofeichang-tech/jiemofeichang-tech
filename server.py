@@ -12,6 +12,7 @@ import sys
 import threading
 from datetime import datetime, timedelta
 from http import HTTPStatus
+import http.client as http_client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import error, parse, request
@@ -496,6 +497,7 @@ STATE = {
     "ai_chat_model": LOCAL_CONFIG.get("ai_chat_model", "gemini-2.5-pro"),
     "ai_image_model": LOCAL_CONFIG.get("ai_image_model", "nano-banana-pro-preview"),
     "gemini_api_key": LOCAL_CONFIG.get("gemini_api_key", ""),
+    "ai_image_key": LOCAL_CONFIG.get("ai_image_key", ""),
     "ai_video_base": LOCAL_CONFIG.get("ai_video_base", GEMINI_BASE),
     "ai_video_model": LOCAL_CONFIG.get("ai_video_model", "veo-2.0-generate-001"),
     "jimeng_access_key": LOCAL_CONFIG.get("jimeng_access_key", ""),
@@ -591,18 +593,35 @@ def _is_gemini_mode() -> bool:
     return bool(_get_gemini_key())
 
 
-def _gemini_request(url: str, payload: dict | None = None, method: str = "POST", timeout: int = 300):
-    """Make a request to Gemini API with key auth."""
-    key = _get_gemini_key()
+def _gemini_request(url: str, payload: dict | None = None, method: str = "POST", timeout: int = 300, api_key: str | None = None):
+    """Make a request to Gemini API with key auth. Retries on transient network errors."""
+    key = api_key or _get_gemini_key()
     separator = "&" if "?" in url else "?"
     full_url = f"{url}{separator}key={key}"
     headers = {"Content-Type": "application/json"}
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload else None
-    req = request.Request(full_url, data=body, headers=headers, method=method)
-    # Gemini API is public, no need for local proxy
     opener = request.build_opener(request.ProxyHandler({}))
-    with opener.open(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    last_exc = None
+    for attempt in range(3):
+        try:
+            req = request.Request(full_url, data=body, headers=headers, method=method)
+            with opener.open(req, timeout=timeout) as resp:
+                raw = resp.read()
+                return json.loads(raw.decode("utf-8"))
+        except error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")[:500]
+            print(f"[gemini-req] HTTP {exc.code}: {body}", flush=True)
+            raise
+        except (http_client.IncompleteRead, ConnectionError, OSError) as exc:
+            last_exc = exc
+            if attempt < 2:
+                import time as _t
+                _t.sleep(2 * (attempt + 1))
+                continue
+            raise
+        except Exception:
+            raise
+    raise last_exc  # type: ignore
 
 
 def _oai_generate_image(prompt: str, aspect_ratio: str = "1:1", reference_images: list[dict] | None = None) -> list[dict]:
@@ -818,14 +837,25 @@ def _gemini_generate_image(prompt: str, aspect_ratio: str = "1:1", count: int = 
         "3:4": "3:4", "4:3": "4:3",
     }
     gemini_ar = ar_gemini_map.get(aspect_ratio, None)
-    gen_config: dict[str, Any] = {"responseModalities": ["IMAGE"]}
-    if gemini_ar:
-        gen_config["aspectRatio"] = gemini_ar
+    # Use imageConfig format for ycapis/antigravity endpoints, responseModalities for official Gemini
+    if "antigravity" in base or "imageConfig" in (STATE.get("ai_image_config_mode") or ""):
+        gen_config: dict[str, Any] = {"imageConfig": {"imageSize": "2K"}}
+        if gemini_ar:
+            gen_config["imageConfig"]["aspectRatio"] = gemini_ar
+    else:
+        gen_config: dict[str, Any] = {"responseModalities": ["IMAGE"]}
     payload = {
-        "contents": [{"parts": parts}],
+        "contents": [{"role": "user", "parts": parts}],
         "generationConfig": gen_config,
     }
-    result = _gemini_request(url, payload, timeout=300)
+    image_key = (STATE.get("ai_image_key") or "").strip() or None
+    actual_key = image_key or _get_gemini_key()
+    print(f"[image-gen] url={url[:80]}, model={model}, parts_count={len(parts)}, key={actual_key[:15]}...", flush=True)
+    try:
+        result = _gemini_request(url, payload, timeout=300, api_key=image_key)
+    except Exception as exc:
+        print(f"[image-gen] FAILED: {exc}", flush=True)
+        raise
 
     # Extract inlineData from candidates
     images = []
@@ -1958,6 +1988,9 @@ class AppHandler(BaseHTTPRequestHandler):
                         "oaiImageBase": STATE.get("oai_image_base", ""),
                         "oaiImageModel": STATE.get("oai_image_model", ""),
                         "oaiImageEnabled": bool(STATE.get("oai_image_base")) and bool(STATE.get("oai_image_model")),
+                        "hasChatKey": bool(STATE.get("ai_chat_key", "").strip()),
+                        "hasGeminiKey": bool(STATE.get("gemini_api_key", "").strip()),
+                        "hasImageKey": bool(STATE.get("ai_image_key", "").strip()),
                     },
                 },
             )
@@ -2362,6 +2395,16 @@ class AppHandler(BaseHTTPRequestHandler):
         if path == "/api/grid/scene360/regenerate":
             return self._handle_scene360_regenerate()
 
+        # Grid routes — skip auth (direct backend calls from frontend)
+        if path == "/api/grid/generate":
+            return self._handle_grid_generate()
+        if path == "/api/grid/regenerate":
+            return self._handle_grid_regenerate()
+        if path == "/api/grid/storyboard/analyze":
+            return self._handle_storyboard_analyze()
+        if path == "/api/grid/storyboard/generate":
+            return self._handle_storyboard_generate()
+
         # Auth check for all other API routes
         if not self.require_auth():
             return
@@ -2662,6 +2705,9 @@ class AppHandler(BaseHTTPRequestHandler):
         oai_image_base = data.get("oaiImageBase") if "oaiImageBase" in data else STATE.get("oai_image_base", "")
         oai_image_model = data.get("oaiImageModel") if "oaiImageModel" in data else STATE.get("oai_image_model", "")
         oai_image_key = data.get("oaiImageKey") if "oaiImageKey" in data else STATE.get("oai_image_key", "")
+        ai_chat_key = data.get("aiChatKey") if "aiChatKey" in data else STATE.get("ai_chat_key", "")
+        gemini_api_key = data.get("geminiApiKey") if "geminiApiKey" in data else STATE.get("gemini_api_key", "")
+        ai_image_key = data.get("aiImageKey") if "aiImageKey" in data else STATE.get("ai_image_key", "")
 
         STATE.update(
             {
@@ -2677,6 +2723,9 @@ class AppHandler(BaseHTTPRequestHandler):
                 "oai_image_base": oai_image_base,
                 "oai_image_model": oai_image_model,
                 "oai_image_key": oai_image_key,
+                "ai_chat_key": ai_chat_key,
+                "gemini_api_key": gemini_api_key,
+                "ai_image_key": ai_image_key,
             }
         )
         persisted_config = load_local_config()
@@ -2696,6 +2745,9 @@ class AppHandler(BaseHTTPRequestHandler):
                 "oai_image_base": oai_image_base,
                 "oai_image_model": oai_image_model,
                 "oai_image_key": oai_image_key,
+                "ai_chat_key": ai_chat_key,
+                "gemini_api_key": gemini_api_key,
+                "ai_image_key": ai_image_key,
             }
         )
         persist_local_config(persisted_config)

@@ -371,8 +371,8 @@ def analyze_storyboard(ref_b64: str, mime_type: str, grid_size: int, gemini_requ
         except Exception as e:
             print(f"[storyboard] OAI chat analysis failed: {e}, falling back to Gemini", flush=True)
 
-    # Fallback: Gemini native
-    model = STATE.get("ai_image_model") or "gemini-2.5-pro"
+    # Fallback: Gemini native (analysis always uses gemini-2.5-pro on official API)
+    model = "gemini-2.5-pro"
     base = GEMINI_BASE
 
     parts = [

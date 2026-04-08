@@ -125,6 +125,7 @@ export function updateSessionConfig(config: {
   apiKey?: string; userId?: string; defaultModel?: string; autoSave?: boolean;
   aiChatBase?: string; aiImageBase?: string; aiChatModel?: string; aiImageModel?: string;
   oaiImageBase?: string; oaiImageModel?: string; oaiImageKey?: string;
+  aiChatKey?: string; geminiApiKey?: string; aiImageKey?: string;
 }) {
   return api<{ hasApiKey: boolean; userId: string; defaultModel: string; autoSave: boolean; message: string }>("/api/session/key", {
     method: "POST",
@@ -861,15 +862,25 @@ export interface GridJobStatus {
   results: GridJobResult[];
 }
 
-export function gridGenerate(payload: {
+export async function gridGenerate(payload: {
   reference_image: string;
   grid_size: 9 | 25;
   mode?: "expression" | "scene" | "body";
 }): Promise<{ job_id: string; status: string }> {
-  return api("/api/grid/generate", {
+  // Direct backend call to avoid Next.js proxy body size limit
+  const backendBase = "http://127.0.0.1:8787";
+  const res = await fetch(`${backendBase}/api/grid/generate`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    credentials: "include",
   });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const raw = (data as Record<string, unknown>).error;
+    throw new Error(typeof raw === "string" ? raw : `请求失败：${res.status}`);
+  }
+  return data as { job_id: string; status: string };
 }
 
 export function gridJobStatus(jobId: string): Promise<GridJobStatus> {

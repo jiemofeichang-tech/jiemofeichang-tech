@@ -25,21 +25,38 @@ export default function GridUploader({ onUpload }: GridUploaderProps) {
 
       const reader = new FileReader();
       reader.onload = (e) => {
-        const base64 = e.target?.result as string;
-        setPreview(base64);
+        const rawBase64 = e.target?.result as string;
 
-        // Extract dimensions
         const img = new Image();
         img.onload = () => {
-          setDimensions({ w: img.naturalWidth, h: img.naturalHeight });
-          onUpload({
-            base64,
-            width: img.naturalWidth,
-            height: img.naturalHeight,
-            mime: file.type,
-          });
+          const origW = img.naturalWidth;
+          const origH = img.naturalHeight;
+          setDimensions({ w: origW, h: origH });
+
+          // Compress if larger than 2048px on any side (keeps aspect ratio)
+          const MAX_DIM = 2048;
+          let w = origW, h = origH;
+          if (w > MAX_DIM || h > MAX_DIM) {
+            const scale = Math.min(MAX_DIM / w, MAX_DIM / h);
+            w = Math.round(w * scale);
+            h = Math.round(h * scale);
+          }
+
+          if (w !== origW || h !== origH) {
+            const canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d")!;
+            ctx.drawImage(img, 0, 0, w, h);
+            const compressed = canvas.toDataURL("image/jpeg", 0.85);
+            setPreview(compressed);
+            onUpload({ base64: compressed, width: w, height: h, mime: "image/jpeg" });
+          } else {
+            setPreview(rawBase64);
+            onUpload({ base64: rawBase64, width: origW, height: origH, mime: file.type });
+          }
         };
-        img.src = base64;
+        img.src = rawBase64;
       };
       reader.readAsDataURL(file);
     },

@@ -15,6 +15,12 @@ export default function AiConfigDialog({ open, onClose }: AiConfigDialogProps) {
   const [oaiImageBase, setOaiImageBase] = useState("");
   const [oaiImageModel, setOaiImageModel] = useState("");
   const [oaiImageKey, setOaiImageKey] = useState("");
+  const [aiChatKey, setAiChatKey] = useState("");
+  const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [aiImageKey, setAiImageKey] = useState("");
+  const [hasChatKey, setHasChatKey] = useState(false);
+  const [hasGeminiKey, setHasGeminiKey] = useState(false);
+  const [hasImageKey, setHasImageKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -29,6 +35,9 @@ export default function AiConfigDialog({ open, onClose }: AiConfigDialogProps) {
         setImageModel(ai.imageModel || "");
         setOaiImageBase(ai.oaiImageBase || "");
         setOaiImageModel(ai.oaiImageModel || "");
+        setHasChatKey(!!ai.hasChatKey);
+        setHasGeminiKey(!!ai.hasGeminiKey);
+        setHasImageKey(!!ai.hasImageKey);
       }
     }).catch(() => {});
   }, [open]);
@@ -47,6 +56,9 @@ export default function AiConfigDialog({ open, onClose }: AiConfigDialogProps) {
         oaiImageBase: oaiImageBase,
         oaiImageModel: oaiImageModel,
         ...(oaiImageKey.trim() ? { oaiImageKey } : {}),
+        ...(aiChatKey.trim() ? { aiChatKey } : {}),
+        ...(geminiApiKey.trim() ? { geminiApiKey } : {}),
+        ...(aiImageKey.trim() ? { aiImageKey } : {}),
       } as Record<string, string>);
       setMessage("配置已保存");
       setTimeout(onClose, 1000);
@@ -128,6 +140,60 @@ export default function AiConfigDialog({ open, onClose }: AiConfigDialogProps) {
 
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>
+            Chat API Key{hasChatKey ? "（已配置）" : ""}
+          </label>
+          <input
+            value={aiChatKey}
+            onChange={(e) => setAiChatKey(e.target.value)}
+            placeholder={hasChatKey ? "留空则保持不变" : "sk-..."}
+            type="password"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "1px solid #444",
+              background: "#252535",
+              color: "#e0e0e0",
+              fontSize: 13,
+            }}
+          />
+        </div>
+
+        <div style={{ margin: "16px 0 8px", borderTop: "1px solid #333", paddingTop: 16 }}>
+          <h4 style={{ color: "#4ade80", fontSize: 13, marginBottom: 12, fontWeight: 600 }}>
+            Gemini API（场景分析 / 图片生成 fallback）
+          </h4>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>
+            Gemini API Key{hasGeminiKey ? "（已配置）" : ""}
+          </label>
+          <input
+            value={geminiApiKey}
+            onChange={(e) => setGeminiApiKey(e.target.value)}
+            placeholder={hasGeminiKey ? "留空则保持不变" : "AIzaSy..."}
+            type="password"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "1px solid #444",
+              background: "#252535",
+              color: "#e0e0e0",
+              fontSize: 13,
+            }}
+          />
+        </div>
+
+        <div style={{ margin: "16px 0 8px", borderTop: "1px solid #333", paddingTop: 16 }}>
+          <h4 style={{ color: "#60a5fa", fontSize: 13, marginBottom: 12, fontWeight: 600 }}>
+            图片生成配置
+          </h4>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>
             Image Generation 端点 URL
           </label>
           <input
@@ -166,9 +232,30 @@ export default function AiConfigDialog({ open, onClose }: AiConfigDialogProps) {
           />
         </div>
 
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>
+            Image API Key{hasImageKey ? "（已配置）" : "（留空则用 Gemini Key）"}
+          </label>
+          <input
+            value={aiImageKey}
+            onChange={(e) => setAiImageKey(e.target.value)}
+            placeholder={hasImageKey ? "留空则保持不变" : "sk-..."}
+            type="password"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "1px solid #444",
+              background: "#252535",
+              color: "#e0e0e0",
+              fontSize: 13,
+            }}
+          />
+        </div>
+
         <div style={{ margin: "16px 0 8px", borderTop: "1px solid #333", paddingTop: 16 }}>
           <h4 style={{ color: "#c084fc", fontSize: 13, marginBottom: 12, fontWeight: 600 }}>
-            OAI 图像中转（可选，配置后优先使用）
+            OAI 图像中转（备选，配置后优先使用）
           </h4>
         </div>
 

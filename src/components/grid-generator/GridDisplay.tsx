@@ -94,6 +94,52 @@ export default function GridDisplay({ jobId, gridSize, refWidth, refHeight }: Gr
     }
   }, [jobId, startPolling]);
 
+  const [retryingAll, setRetryingAll] = useState(false);
+  const retryAbortRef = useRef(false);
+
+  const handleRetryAllFailed = useCallback(async () => {
+    if (!job) return;
+    const failedKeys = job.results.filter((r) => r.status === "failed").map((r) => r.key);
+    if (failedKeys.length === 0) return;
+
+    setRetryingAll(true);
+    retryAbortRef.current = false;
+
+    for (const key of failedKeys) {
+      if (retryAbortRef.current) break;
+      setRegeneratingKeys((prev) => new Set(prev).add(key));
+      try {
+        await gridRegenerate({ job_id: jobId, expression_key: key });
+        setJob((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            status: "generating",
+            results: prev.results.map((r) =>
+              r.key === key ? { ...r, status: "generating" as const, image_url: null } : r
+            ),
+          };
+        });
+        startPolling();
+        // Wait for this one to finish before starting next (check every 2s)
+        let waited = 0;
+        while (waited < 180_000) {
+          await new Promise((r) => setTimeout(r, 3000));
+          waited += 3000;
+          if (retryAbortRef.current) break;
+          try {
+            const status = await gridJobStatus(jobId);
+            setJob(status);
+            const item = status.results.find((r) => r.key === key);
+            if (item && (item.status === "done" || item.status === "failed")) break;
+          } catch { /* ignore */ }
+        }
+      } catch { /* ignore single failure */ }
+    }
+    setRetryingAll(false);
+    setRegeneratingKeys(new Set());
+  }, [job, jobId, startPolling]);
+
   const completedUrls = job?.results
     .filter((r) => r.status === "done" && r.image_url)
     .map((r) => r.image_url as string) ?? [];
@@ -131,6 +177,24 @@ export default function GridDisplay({ jobId, gridSize, refWidth, refHeight }: Gr
           {job ? `${job.completed} / ${job.total}` : "加载中..."}
         </span>
       </div>
+
+      {/* Retry all failed button */}
+      {job && !hasGenerating && job.results.some((r) => r.status === "failed") && (
+        <div className="flex justify-center">
+          <button
+            onClick={retryingAll ? () => { retryAbortRef.current = true; } : handleRetryAllFailed}
+            className={`px-5 py-2 rounded-lg text-sm font-medium transition ${
+              retryingAll
+                ? "bg-red-500/20 text-red-400 hover:bg-red-500/40"
+                : "bg-orange-500/20 text-orange-400 hover:bg-orange-500/40"
+            }`}
+          >
+            {retryingAll
+              ? `重试中... 点击停止`
+              : `重新生成全部失败项 (${job.results.filter((r) => r.status === "failed").length} 张)`}
+          </button>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
