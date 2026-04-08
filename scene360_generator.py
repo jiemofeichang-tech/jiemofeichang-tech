@@ -307,10 +307,63 @@ def _looks_like_missing_image_reply(text: str) -> bool:
     )
 
 
+def _compress_image_b64(b64_data: str, mime_type: str, max_bytes: int = 1_500_000) -> tuple[str, str]:
+    """Compress base64-encoded image to fit within max_bytes. Returns (new_b64, new_mime)."""
+    raw = base64.b64decode(b64_data)
+    if len(raw) <= max_bytes:
+        return b64_data, mime_type
+    try:
+        import io
+        import struct
+        # Parse PNG dimensions from header
+        if raw[:4] == b'\x89PNG':
+            w, h = struct.unpack('>II', raw[16:24])
+        else:
+            # For JPEG, attempt a rough decode or just scale down aggressively
+            w, h = 2000, 2000  # fallback
+        # Scale down to reduce size
+        scale = (max_bytes / len(raw)) ** 0.5
+        new_w, new_h = max(int(w * scale), 512), max(int(h * scale), 512)
+        # Use tkinter (stdlib) to resize if available, otherwise just convert to JPEG via raw resize
+        try:
+            from PIL import Image
+            img = Image.open(io.BytesIO(raw))
+            img = img.convert("RGB")
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=75)
+            print(f"[scene360] Compressed image from {len(raw)} to {buf.tell()} bytes ({w}x{h} -> {new_w}x{new_h})", flush=True)
+            return base64.b64encode(buf.getvalue()).decode(), "image/jpeg"
+        except ImportError:
+            # No PIL — try converting PNG to lower-quality JPEG via subprocess
+            import subprocess, tempfile
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_in:
+                tmp_in.write(raw)
+                tmp_in_path = tmp_in.name
+            tmp_out_path = tmp_in_path.replace('.png', '.jpg')
+            try:
+                subprocess.run(['magick', tmp_in_path, '-resize', f'{new_w}x{new_h}', '-quality', '75', tmp_out_path],
+                              capture_output=True, timeout=30)
+                with open(tmp_out_path, 'rb') as f:
+                    compressed = f.read()
+                print(f"[scene360] Compressed image via magick from {len(raw)} to {len(compressed)} bytes", flush=True)
+                return base64.b64encode(compressed).decode(), "image/jpeg"
+            except Exception:
+                pass
+            finally:
+                for p in [tmp_in_path, tmp_out_path]:
+                    try: os.remove(p)
+                    except: pass
+    except Exception as exc:
+        print(f"[scene360] Image compression failed: {exc}, sending original", flush=True)
+    return b64_data, mime_type
+
+
 def _analyze_via_oai_chat_direct(ref_b64: str, mime_type: str, system_prompt: str, chat_base: str, chat_model: str, chat_key: str) -> dict:
     """Analyze image via an OpenAI-compatible chat endpoint directly from Python."""
     import urllib.request as _ureq
 
+    ref_b64, mime_type = _compress_image_b64(ref_b64, mime_type)
     data_uri = f"data:{mime_type};base64,{ref_b64}"
     messages = [
         {"role": "user", "content": [
@@ -359,16 +412,16 @@ def analyze_scene(ref_b64: str, mime_type: str, gemini_request_fn: Any) -> dict:
         try:
             return _analyze_via_oai_chat_direct(ref_b64, mime_type, SCENE_360_ANALYSIS_PROMPT, chat_base, chat_model, api_key)
         except Exception as e:
-            if "支持视觉输入" in str(e) or "未真正接收到图片" in str(e):
-                raise
             print(f"[scene360] OAI chat analysis failed: {e}, falling back to Gemini", flush=True)
 
-    # Fallback: Gemini native
+    # Fallback: Gemini native (always use GEMINI_BASE for Gemini API)
     model = STATE.get("ai_image_model") or "gemini-2.5-pro"
-    base = STATE.get("ai_image_base") or GEMINI_BASE
+    base = GEMINI_BASE
 
+    # Compress image for Gemini too (avoid oversized payloads)
+    compressed_b64, compressed_mime = _compress_image_b64(ref_b64, mime_type, max_bytes=3_000_000)
     parts = [
-        {"inlineData": {"mimeType": mime_type, "data": ref_b64}},
+        {"inlineData": {"mimeType": compressed_mime, "data": compressed_b64}},
         {"text": SCENE_360_ANALYSIS_PROMPT},
     ]
 
@@ -378,16 +431,25 @@ def analyze_scene(ref_b64: str, mime_type: str, gemini_request_fn: Any) -> dict:
     }
 
     url = f"{base}/models/{model}:generateContent"
-    result = gemini_request_fn(url, payload, timeout=120)
+    try:
+        print(f"[scene360] Gemini request: model={model}, base={base}, payload_keys={list(payload.keys())}", flush=True)
+        result = gemini_request_fn(url, payload, timeout=120)
+        print(f"[scene360] Gemini raw result keys: {list(result.keys()) if isinstance(result, dict) else type(result)}", flush=True)
+    except Exception as exc:
+        print(f"[scene360] Gemini request failed: {exc}", flush=True)
+        raise RuntimeError(f"Gemini 分析失败: {exc}")
 
     # Extract text from response
     text = ""
-    for candidate in result.get("candidates", []):
+    candidates = result.get("candidates", [])
+    print(f"[scene360] Gemini candidates count: {len(candidates)}", flush=True)
+    for candidate in candidates:
         for part in candidate.get("content", {}).get("parts", []):
             if "text" in part:
                 text += part["text"]
 
     if not text:
+        print(f"[scene360] Gemini full result: {json.dumps(result, ensure_ascii=False)[:500]}", flush=True)
         raise RuntimeError("AI 未返回分析结果")
 
     return _parse_ai_json(text)

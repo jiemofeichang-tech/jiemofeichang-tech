@@ -369,13 +369,11 @@ def analyze_storyboard(ref_b64: str, mime_type: str, grid_size: int, gemini_requ
         try:
             return _analyze_via_oai_chat_direct(ref_b64, mime_type, prompt, chat_base, chat_model, api_key)
         except Exception as e:
-            if "支持视觉输入" in str(e) or "未真正接收到图片" in str(e):
-                raise
             print(f"[storyboard] OAI chat analysis failed: {e}, falling back to Gemini", flush=True)
 
     # Fallback: Gemini native
     model = STATE.get("ai_image_model") or "gemini-2.5-pro"
-    base = STATE.get("ai_image_base") or GEMINI_BASE
+    base = GEMINI_BASE
 
     parts = [
         {"inlineData": {"mimeType": mime_type, "data": ref_b64}},

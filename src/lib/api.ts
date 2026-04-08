@@ -633,7 +633,7 @@ export async function wfAiChatStream(
 ): Promise<string> {
   // Call Python backend directly to avoid Next.js dev proxy 30s timeout.
   // AI responses (especially long JSON) can take 60s+.
-  const backendBase = `http://127.0.0.1:8788`;
+  const backendBase = `http://127.0.0.1:8787`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 分钟超时
   let res: Response;
@@ -935,10 +935,34 @@ export async function scene360Analyze(payload: {
   reference_image: string;
 }): Promise<Scene360Analysis> {
   const preparedPayload = await _prepareAnalysisPayload(payload);
-  const startRes = await api<Scene360Analysis | { job_id: string }>("/api/grid/scene360/analyze", {
-    method: "POST",
-    body: JSON.stringify(preparedPayload),
-  });
+  // Call Python backend directly to avoid Next.js dev proxy 30s timeout.
+  const backendBase = "http://127.0.0.1:8787";
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+  let res: Response;
+  try {
+    res = await fetch(`${backendBase}/api/grid/scene360/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(preparedPayload),
+      signal: controller.signal,
+      credentials: "include",
+    });
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("AI 分析超时（5分钟），请检查网络后重试。");
+    }
+    throw err;
+  }
+  clearTimeout(timeoutId);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const raw = (data as Record<string, unknown>).error;
+    const msg = typeof raw === "string" ? raw : `请求失败：${res.status}`;
+    throw new Error(msg);
+  }
+  const startRes = data as Scene360Analysis | { job_id: string };
   if ("style_anchor" in startRes) return startRes;
   const maxWait = Date.now() + 120_000;
   while (Date.now() < maxWait) {
@@ -963,7 +987,7 @@ export async function scene360Generate(payload: {
   aspect_ratio: string;
 }): Promise<{ job_id: string; status: string }> {
   const preparedPayload = await _prepareGenerationPayload(payload);
-  const backendBase = "http://127.0.0.1:8788";
+  const backendBase = "http://127.0.0.1:8787";
   const res = await fetch(`${backendBase}/api/grid/scene360/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1157,7 +1181,7 @@ export async function storyboardGenerate(payload: {
   aspect_ratio: string;
 }): Promise<{ job_id: string; status: string }> {
   const preparedPayload = await _prepareGenerationPayload(payload);
-  const urls = ["http://127.0.0.1:8788/api/grid/storyboard/generate", "/api/grid/storyboard/generate"];
+  const urls = ["http://127.0.0.1:8787/api/grid/storyboard/generate", "/api/grid/storyboard/generate"];
   let lastError: Error | null = null;
   for (const url of urls) {
     try {
