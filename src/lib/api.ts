@@ -5,10 +5,11 @@ import {
 } from "./prompt-system";
 
 // In dev mode, direct backend calls bypass Next.js proxy timeout.
-// In production, must go through Next.js proxy (browser can't reach 127.0.0.1).
-const BACKEND_DIRECT = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-  ? "http://127.0.0.1:8787"
-  : "";
+// In production, use /api/proxy/ route which supports large bodies and long timeouts.
+const IS_LOCAL = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+const BACKEND_DIRECT = IS_LOCAL ? "http://127.0.0.1:8787" : "";
+// For large requests in production, use the proxy API route instead of Next.js rewrites
+const BACKEND_PROXY = IS_LOCAL ? "http://127.0.0.1:8787" : "/api/proxy";
 
 export interface TaskRecord {
   id: string;
@@ -873,8 +874,8 @@ export async function gridGenerate(payload: {
   grid_size: 9 | 25;
   mode?: "expression" | "scene" | "body";
 }): Promise<{ job_id: string; status: string }> {
-  // Direct backend call to avoid Next.js proxy body size limit
-  const backendBase = BACKEND_DIRECT;
+  // Use proxy route for large image payloads
+  const backendBase = BACKEND_PROXY;
   const res = await fetch(`${backendBase}/api/grid/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -952,8 +953,8 @@ export async function scene360Analyze(payload: {
   reference_image: string;
 }): Promise<Scene360Analysis> {
   const preparedPayload = await _prepareAnalysisPayload(payload);
-  // Call Python backend directly to avoid Next.js dev proxy 30s timeout.
-  const backendBase = BACKEND_DIRECT;
+  // Use proxy route for large payloads and long timeout
+  const backendBase = BACKEND_PROXY;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
   let res: Response;
@@ -1004,7 +1005,7 @@ export async function scene360Generate(payload: {
   aspect_ratio: string;
 }): Promise<{ job_id: string; status: string }> {
   const preparedPayload = await _prepareGenerationPayload(payload);
-  const backendBase = BACKEND_DIRECT;
+  const backendBase = BACKEND_PROXY;
   const res = await fetch(`${backendBase}/api/grid/scene360/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1198,7 +1199,7 @@ export async function storyboardGenerate(payload: {
   aspect_ratio: string;
 }): Promise<{ job_id: string; status: string }> {
   const preparedPayload = await _prepareGenerationPayload(payload);
-  const urls = [`${BACKEND_DIRECT}/api/grid/storyboard/generate`, "/api/grid/storyboard/generate"];
+  const urls = [`${BACKEND_PROXY}/api/grid/storyboard/generate`, "/api/grid/storyboard/generate"];
   let lastError: Error | null = null;
   for (const url of urls) {
     try {
