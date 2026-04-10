@@ -4,6 +4,12 @@ import {
   ASPECT_RATIO_PROMPTS,
 } from "./prompt-system";
 
+// In dev mode, direct backend calls bypass Next.js proxy timeout.
+// In production, must go through Next.js proxy (browser can't reach 127.0.0.1).
+const BACKEND_DIRECT = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+  ? "http://127.0.0.1:8787"
+  : "";
+
 export interface TaskRecord {
   id: string;
   model?: string;
@@ -634,7 +640,7 @@ export async function wfAiChatStream(
 ): Promise<string> {
   // Call Python backend directly to avoid Next.js dev proxy 30s timeout.
   // AI responses (especially long JSON) can take 60s+.
-  const backendBase = `http://127.0.0.1:8787`;
+  const backendBase = BACKEND_DIRECT;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 分钟超时
   let res: Response;
@@ -868,7 +874,7 @@ export async function gridGenerate(payload: {
   mode?: "expression" | "scene" | "body";
 }): Promise<{ job_id: string; status: string }> {
   // Direct backend call to avoid Next.js proxy body size limit
-  const backendBase = "http://127.0.0.1:8787";
+  const backendBase = BACKEND_DIRECT;
   const res = await fetch(`${backendBase}/api/grid/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -947,7 +953,7 @@ export async function scene360Analyze(payload: {
 }): Promise<Scene360Analysis> {
   const preparedPayload = await _prepareAnalysisPayload(payload);
   // Call Python backend directly to avoid Next.js dev proxy 30s timeout.
-  const backendBase = "http://127.0.0.1:8787";
+  const backendBase = BACKEND_DIRECT;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
   let res: Response;
@@ -998,7 +1004,7 @@ export async function scene360Generate(payload: {
   aspect_ratio: string;
 }): Promise<{ job_id: string; status: string }> {
   const preparedPayload = await _prepareGenerationPayload(payload);
-  const backendBase = "http://127.0.0.1:8787";
+  const backendBase = BACKEND_DIRECT;
   const res = await fetch(`${backendBase}/api/grid/scene360/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1192,7 +1198,7 @@ export async function storyboardGenerate(payload: {
   aspect_ratio: string;
 }): Promise<{ job_id: string; status: string }> {
   const preparedPayload = await _prepareGenerationPayload(payload);
-  const urls = ["http://127.0.0.1:8787/api/grid/storyboard/generate", "/api/grid/storyboard/generate"];
+  const urls = [`${BACKEND_DIRECT}/api/grid/storyboard/generate`, "/api/grid/storyboard/generate"];
   let lastError: Error | null = null;
   for (const url of urls) {
     try {
