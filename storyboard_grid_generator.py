@@ -356,7 +356,7 @@ def _analyze_via_oai_chat_direct(ref_b64: str, mime_type: str, system_prompt: st
 
 def analyze_storyboard(ref_b64: str, mime_type: str, grid_size: int, gemini_request_fn: Any) -> dict:
     """Analyze reference image and generate storyboard plan."""
-    from server import STATE, GEMINI_BASE, get_ai_chat_key
+    from server import STATE, get_ai_chat_key, get_gemini_base
 
     prompt = ANALYSIS_PROMPTS.get(grid_size, STORYBOARD_ANALYSIS_PROMPT_9)
 
@@ -371,9 +371,9 @@ def analyze_storyboard(ref_b64: str, mime_type: str, grid_size: int, gemini_requ
         except Exception as e:
             print(f"[storyboard] OAI chat analysis failed: {e}, falling back to Gemini", flush=True)
 
-    # Fallback: Gemini native (analysis always uses gemini-2.5-pro on official API)
+    # Fallback: Gemini-compatible generateContent endpoint.
     model = "gemini-2.5-pro"
-    base = GEMINI_BASE
+    base = get_gemini_base(STATE.get("ai_image_base"))
 
     parts = [
         {"inlineData": {"mimeType": mime_type, "data": ref_b64}},

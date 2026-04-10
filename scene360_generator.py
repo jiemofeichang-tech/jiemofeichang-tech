@@ -401,7 +401,7 @@ def _analyze_via_oai_chat_direct(ref_b64: str, mime_type: str, system_prompt: st
 
 def analyze_scene(ref_b64: str, mime_type: str, gemini_request_fn: Any) -> dict:
     """Analyze a reference image. Tries OAI chat first, falls back to Gemini."""
-    from server import STATE, GEMINI_BASE, get_ai_chat_key
+    from server import STATE, get_ai_chat_key, get_gemini_base
 
     # Use ycapis for analysis via Next.js proxy
     chat_base = (STATE.get("ai_chat_base") or "").strip()
@@ -414,9 +414,9 @@ def analyze_scene(ref_b64: str, mime_type: str, gemini_request_fn: Any) -> dict:
         except Exception as e:
             print(f"[scene360] OAI chat analysis failed: {e}, falling back to Gemini", flush=True)
 
-    # Fallback: Gemini native (analysis always uses gemini-2.5-pro on official API)
+    # Fallback: Gemini-compatible generateContent endpoint.
     model = "gemini-2.5-pro"
-    base = GEMINI_BASE
+    base = get_gemini_base(STATE.get("ai_image_base"))
 
     # Compress image for Gemini too (avoid oversized payloads)
     compressed_b64, compressed_mime = _compress_image_b64(ref_b64, mime_type, max_bytes=3_000_000)

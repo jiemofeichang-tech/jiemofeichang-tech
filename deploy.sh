@@ -58,7 +58,7 @@ cat > .local-secrets.json << 'SECRETS'
   "use_file_auth": true,
   "gemini_api_key": "AIzaSyA65SVqtKB9hzVYXGJCBPllVqPI7oiU0eg",
   "ai_image_model": "gemini-2.5-flash-image",
-  "ai_image_base": "https://generativelanguage.googleapis.com/v1beta",
+  "ai_image_base": "https://api.ycapis.com/v1beta",
   "ai_chat_base": "http://peiqian.icu/v1/chat/completions",
   "ai_chat_model": "claude-sonnet-4-20250514",
   "ai_chat_key": "sk-firstapi-d225fca83bc948b1a480",

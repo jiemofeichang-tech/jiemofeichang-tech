@@ -64,6 +64,7 @@ UPSTREAM_BASE = "http://zlhub.xiaowaiyou.cn/zhonglian/api/v1/proxy/ark/contents/
 AI_CHAT_BASE = "http://peiqian.icu/v1/chat/completions"
 AI_IMAGE_BASE = "http://zlhub.xiaowaiyou.cn/zhonglian/api/v1/proxy/chat/completions"
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+YCAPIS_GEMINI_BASE = os.environ.get("YCAPIS_GEMINI_BASE", "https://api.ycapis.com/v1beta")
 MINIMAX_IMAGE_BASE = "https://api.minimaxi.com"
 # 出站 HTTP 代理（zlhub 需要通过本地代理访问）
 OUTBOUND_PROXY = os.environ.get("OUTBOUND_PROXY", "http://127.0.0.1:7897")
@@ -588,6 +589,22 @@ def _get_gemini_key() -> str:
     return (STATE.get("gemini_api_key") or "").strip()
 
 
+def get_gemini_base(preferred_base: str | None = None) -> str:
+    """Resolve the Gemini-compatible base URL from config and key shape."""
+    base = (preferred_base or "").strip()
+    gemini_key = _get_gemini_key()
+    image_key = (STATE.get("ai_image_key") or "").strip()
+    has_ycapis_key = gemini_key.startswith("sk-") or image_key.startswith("sk-")
+
+    if not base:
+        return YCAPIS_GEMINI_BASE if has_ycapis_key else GEMINI_BASE
+
+    if base.rstrip("/") == GEMINI_BASE and has_ycapis_key:
+        return YCAPIS_GEMINI_BASE
+
+    return base.rstrip("/")
+
+
 def _is_gemini_mode() -> bool:
     """Check if Gemini API key is configured."""
     return bool(_get_gemini_key())
@@ -788,7 +805,7 @@ def _gemini_generate_image(prompt: str, aspect_ratio: str = "1:1", count: int = 
         return _oai_generate_image(prompt, aspect_ratio, reference_images)
 
     model = STATE.get("ai_image_model") or "nano-banana-pro-preview"
-    base = STATE.get("ai_image_base") or GEMINI_BASE
+    base = get_gemini_base(STATE.get("ai_image_base"))
 
     # Imagen models use predict endpoint
     if model.startswith("imagen"):
@@ -3398,6 +3415,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if not api_key:
                 return self.send_error_json(HTTPStatus.BAD_REQUEST, "还没有设置 API Key")
 
+            data = self._normalize_messages(data)
             data["stream"] = False
             body_str = json.dumps(data, ensure_ascii=False)
             target_url = STATE["ai_chat_base"]
@@ -3521,6 +3539,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if not api_key:
             return self.send_error_json(HTTPStatus.BAD_REQUEST, "还没有设置 API Key")
 
+        data = self._normalize_messages(data)
         data["stream"] = True
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         headers = {
